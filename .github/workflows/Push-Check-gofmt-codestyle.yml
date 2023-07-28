@@ -1,0 +1,13 @@
+name: Push Check gofmt codestype
+
+on: push
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        go-version: [1.16.x, 1.20.x]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check code formatting using gofmt
+        uses: Jerome1337/gofmt-action@v1.0.5
