@@ -15,6 +15,7 @@ const (
 	errCodeRecursionDepth
 )
 
+// Errors in encoding and decoding Protobuf wiretypes.
 var (
 	errFieldNumber = errors.New("invalid field number")
 	errOverflow    = errors.New("variable length integer overflow")

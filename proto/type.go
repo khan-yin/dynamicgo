@@ -8,8 +8,8 @@ const (
 	Fixed32Type    wireType = 5
 	Fixed64Type    wireType = 1
 	BytesType      wireType = 2
-	StartGroupType wireType = 3
-	EndGroupType   wireType = 4
+	StartGroupType wireType = 3	 // deprecated
+	EndGroupType   wireType = 4  // deprecated
 )
 
 // proto message kind
@@ -33,7 +33,7 @@ const (
 	StringKind   protoKind = 9
 	BytesKind    protoKind = 12
 	MessageKind  protoKind = 11
-	GroupKind    protoKind = 10
+	GroupKind    protoKind = 10  // deprecated
 )
 
 // filed type byte=uint8
