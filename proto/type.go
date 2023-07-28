@@ -77,3 +77,18 @@ const (
 	MESSAGE Type = 15
 	ERROR   Type = 255
 )
+
+type Number int32
+
+type FieldNumber = Number
+type EnumNumber = Number
+
+// reserved field number min-max ranges in a proto message
+const (
+	MinValidNumber        Number = 1
+	FirstReservedNumber   Number = 19000
+	LastReservedNumber    Number = 19999
+	MaxValidNumber        Number = 1<<29 - 1
+	DefaultRecursionLimit        = 10000
+)
+
