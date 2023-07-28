@@ -13,5 +13,6 @@ require (
 	github.com/iancoleman/strcase v0.2.0
 	github.com/klauspost/cpuid/v2 v2.2.4
 	github.com/stretchr/testify v1.8.2
+	google.golang.org/protobuf v1.31.0 // indirect
 
 )
