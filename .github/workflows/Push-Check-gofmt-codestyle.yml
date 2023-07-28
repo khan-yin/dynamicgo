@@ -1,4 +1,4 @@
-name: Push Check gofmt codestype
+name: Push Check gofmt codestyle
 
 on: push
 
