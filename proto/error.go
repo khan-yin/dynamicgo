@@ -5,17 +5,17 @@ import (
 	"io"
 )
 
+// Errors in encoding and decoding Protobuf wiretypes.
 const (
 	_ = -iota
-	errCodeTruncated
-	errCodeFieldNumber
-	errCodeOverflow
-	errCodeReserved
-	errCodeEndGroup
-	errCodeRecursionDepth
+	ErrCodeTruncated
+	ErrCodeFieldNumber
+	ErrCodeOverflow
+	ErrCodeReserved
+	ErrCodeEndGroup
+	ErrCodeRecursionDepth
 )
 
-// Errors in encoding and decoding Protobuf wiretypes.
 var (
 	errFieldNumber = errors.New("invalid field number")
 	errOverflow    = errors.New("variable length integer overflow")
@@ -31,15 +31,15 @@ func ParseError(n int) error {
 		return nil
 	}
 	switch n {
-	case errCodeTruncated:
+	case ErrCodeTruncated:
 		return io.ErrUnexpectedEOF
-	case errCodeFieldNumber:
+	case ErrCodeFieldNumber:
 		return errFieldNumber
-	case errCodeOverflow:
+	case ErrCodeOverflow:
 		return errOverflow
-	case errCodeReserved:
+	case ErrCodeReserved:
 		return errReserved
-	case errCodeEndGroup:
+	case ErrCodeEndGroup:
 		return errEndGroup
 	default:
 		return errParse
