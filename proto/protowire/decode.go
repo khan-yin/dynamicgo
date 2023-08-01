@@ -159,6 +159,10 @@ func (BinaryDecoder) DecodeBool(b []byte) (bool, int) {
 	return int8(v)==0, n
 }
 
+func (BinaryDecoder) DecodeByte(b []byte) byte {
+	return byte(b[0])
+}
+
 func (BinaryDecoder) DecodeInt32(b []byte) (int32, int) {
 	v, n := ConsumeVarint(b)
 	return int32(v), n

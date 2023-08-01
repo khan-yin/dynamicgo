@@ -135,6 +135,10 @@ func (BinaryEncoder) EncodeBool(b []byte, v bool) []byte {
 	return append(b, 0)
 }
 
+func (BinaryEncoder) EncodeByte(b []byte, v byte) []byte {
+	return append(b, v)
+}
+
 func (BinaryEncoder) EncodeEnum(b []byte, v int32) []byte {
 	return AppendVarint(b, uint64(v))
 }
