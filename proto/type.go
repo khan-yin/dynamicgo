@@ -1,6 +1,8 @@
 package proto
 
-import "google.golang.org/protobuf/reflect/protoreflect"
+import (
+	"google.golang.org/protobuf/reflect/protoreflect"
+)
 
 // protobuf encoding wire type
 type WireType int8
@@ -15,7 +17,7 @@ const (
 )
 
 // proto message kind
-type ProtoKind protoreflect.Kind
+type ProtoKind = protoreflect.Kind
 
 const (
 	DoubleKind   ProtoKind = iota + 1
@@ -74,6 +76,17 @@ func (p Type) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// FromProtoKindTType converts ProtoKind to Type
+func FromProtoKindToType(kind ProtoKind, isList bool, isMap bool) Type {
+	t := Type(kind)
+	if isList {
+		t = LIST
+	} else if isMap {
+		t = MAP
+	}
+	return t
 }
 
 type Number int32
