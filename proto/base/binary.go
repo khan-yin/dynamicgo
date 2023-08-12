@@ -10,12 +10,14 @@ import (
 
 	"github.com/cloudwego/dynamicgo/internal/primitive"
 	"github.com/cloudwego/dynamicgo/internal/rt"
+	"github.com/cloudwego/dynamicgo/meta"
 	"github.com/cloudwego/dynamicgo/proto"
 	"github.com/cloudwego/dynamicgo/proto/errors"
 	"github.com/cloudwego/dynamicgo/proto/protowire"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+// memory resize factor
 const (
 	defaultBufferSize = 4096
 	growBufferFactor  = 1
@@ -23,6 +25,7 @@ const (
 
 var byteType = rt.UnpackType(reflect.TypeOf(byte(0)))
 
+// map from proto.ProtoKind to proto.WireType
 var wireTypes = map[proto.ProtoKind]proto.WireType{
 	proto.BoolKind:     proto.VarintType,
 	proto.EnumKind:     proto.VarintType,
@@ -43,6 +46,17 @@ var wireTypes = map[proto.ProtoKind]proto.WireType{
 	proto.MessageKind:  proto.BytesType,
 	proto.GroupKind:    proto.StartGroupType,
 }
+
+var (
+	errDismatchPrimitive = meta.NewError(meta.ErrDismatchType, "dismatch primitive types", nil)
+	errInvalidDataSize   = meta.NewError(meta.ErrInvalidParam, "invalid data size", nil)
+	errInvalidVersion    = meta.NewError(meta.ErrInvalidParam, "invalid version in ReadMessageBegin", nil)
+	errExceedDepthLimit  = meta.NewError(meta.ErrStackOverflow, "exceed depth limit", nil)
+	errInvalidDataType   = meta.NewError(meta.ErrRead, "invalid data type", nil)
+	errUnknonwField      = meta.NewError(meta.ErrUnknownField, "unknown field", nil)
+	errUnsupportedType   = meta.NewError(meta.ErrUnsupportedType, "unsupported type", nil)
+	errNotImplemented    = meta.NewError(meta.ErrNotImplemented, "not implemted type", nil)
+)
 
 // Serizalize data to byte array and reuse the memory
 type BinaryProtocol struct {
@@ -124,6 +138,23 @@ func (p *BinaryProtocol) AppendTag(num proto.Number, typ proto.WireType) error {
 	tag := uint64(num)<<3 | uint64(typ&7)
 	p.Buf = protowire.BinaryEncoder{}.EncodeInt64(p.Buf, int64(tag))
 	return nil
+}
+
+// ConsumeTag parses b as a varint-encoded tag, reporting its length.
+// This returns a negative length upon an error (see ParseError).
+func (p *BinaryProtocol) ConsumeTag(b []byte) (proto.Number, proto.WireType, int) {
+	v, n := protowire.ConsumeVarint(b)
+	if n < 0 {
+		return 0, 0, n
+	}
+	if v>>3 > uint64(math.MaxInt32) {
+		return -1, 0, n
+	}
+	num, typ := proto.Number(v>>3), proto.WireType(v&7)
+	if num < proto.MinValidNumber {
+		return 0, 0, proto.ErrCodeFieldNumber
+	}
+	return num, typ, n
 }
 
 // WriteBool
@@ -269,7 +300,19 @@ func (p *BinaryProtocol) WriteMap() error {
 /**
  * Write Message
  */
-func (p *BinaryProtocol) WriteMessageSlow() error {
+func (p *BinaryProtocol) WriteMessageSlow(desc proto.FieldDescriptor, vs map[string]interface{}, cast bool, disallowUnknown bool, useFieldName bool) error {
+	for id, v := range vs {
+		f := desc.Message().Fields().ByName(protoreflect.Name(id))
+		if f == nil {
+			if disallowUnknown {
+				return errUnknonwField
+			}
+			continue
+		}
+		if e := p.WriteAnyWithDesc(f, v, cast, disallowUnknown, useFieldName); e != nil {
+			return e
+		}
+	}
 	return nil
 }
 
@@ -294,11 +337,14 @@ func finishSpeculativeLength(b []byte, pos int) []byte {
 		copy(b[pos+msiz:], b[pos+speculativeLength:])
 		b = b[:pos+msiz+mlen]
 	}
-	// protowire.AppendVarint(b[:pos], uint64(mlen))
+	protowire.AppendVarint(b[:pos], uint64(mlen))
 	return b
 }
 
-// WriteAnyWithDesc
+// WriteAnyWithDesc explain desc and val and write them into buffer
+//   - LIST/SET will be converted from []interface{}
+//   - MAP will be converted from map[string]interface{} or map[int]interface{}
+//   - STRUCT will be converted from map[FieldID]interface{}
 func (p *BinaryProtocol) WriteAnyWithDesc(desc proto.FieldDescriptor, val interface{}, cast bool, disallowUnknown bool, useFieldName bool) error {
 	switch {
 	case desc.IsList():
@@ -309,12 +355,12 @@ func (p *BinaryProtocol) WriteAnyWithDesc(desc proto.FieldDescriptor, val interf
 		if e := p.AppendTag(proto.Number(desc.Number()), wireTypes[desc.Kind()]); e != nil {
 			return errors.New("AppendTag failed : %v", e.Error())
 		}
-		return p.WriteBaseTypeWithDesc(desc, val)
+		return p.WriteBaseTypeWithDesc(desc, val, cast, disallowUnknown, useFieldName)
 	}
 }
 
 // WriteBaseType with desc, not thread safe
-func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val interface{}) error {
+func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val interface{}, cast bool, disallowUnknown bool, useFieldName bool) error {
 	switch fd.Kind() {
 	case protoreflect.Kind(proto.BoolKind):
 		v, ok := val.(bool)
@@ -470,15 +516,19 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 			return errors.New("WriteBytesType error")
 		}
 		p.WriteBytes(v)
-	// case protoreflect.Kind(proto.MessageKind):
-	// 	var pos int
-	// 	var err error
-	// 	pos = appendSpeculativeLength(p.Buf)
-	// 	b, err = o.marshalMessage()
-	// 	if err != nil {
-	// 		return b, err
-	// 	}
-	// 	b = finishSpeculativeLength(b, pos)
+	case protoreflect.Kind(proto.MessageKind):
+		var pos int
+		var err error
+		vs, ok := val.(map[string]interface{})
+		if !ok {
+			return errDismatchPrimitive
+		}
+		pos = appendSpeculativeLength(p.Buf)
+		err = p.WriteMessageSlow(fd, vs, cast, disallowUnknown, useFieldName)
+		if err != nil {
+			return err
+		}
+		p.Buf = finishSpeculativeLength(p.Buf, pos)
 	// case protoreflect.Kind(proto.GroupKind):
 	// 	var err error
 	// 	b, err = o.marshalMessage(b, v.Message())
