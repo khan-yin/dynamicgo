@@ -2,6 +2,8 @@ package base
 
 import (
 	"encoding/binary"
+	"errors"
+	"io"
 	"math"
 	"reflect"
 	"sync"
@@ -12,7 +14,6 @@ import (
 	"github.com/cloudwego/dynamicgo/internal/rt"
 	"github.com/cloudwego/dynamicgo/meta"
 	"github.com/cloudwego/dynamicgo/proto"
-	"github.com/cloudwego/dynamicgo/proto/errors"
 	"github.com/cloudwego/dynamicgo/proto/protowire"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -50,13 +51,18 @@ var wireTypes = map[proto.ProtoKind]proto.WireType{
 var (
 	errDismatchPrimitive = meta.NewError(meta.ErrDismatchType, "dismatch primitive types", nil)
 	errInvalidDataSize   = meta.NewError(meta.ErrInvalidParam, "invalid data size", nil)
-	errInvalidVersion    = meta.NewError(meta.ErrInvalidParam, "invalid version in ReadMessageBegin", nil)
+	errInvalidTag        = meta.NewError(meta.ErrInvalidParam, "invalid tag in ReadMessageBegin", nil)
 	errExceedDepthLimit  = meta.NewError(meta.ErrStackOverflow, "exceed depth limit", nil)
 	errInvalidDataType   = meta.NewError(meta.ErrRead, "invalid data type", nil)
 	errUnknonwField      = meta.NewError(meta.ErrUnknownField, "unknown field", nil)
 	errUnsupportedType   = meta.NewError(meta.ErrUnsupportedType, "unsupported type", nil)
 	errNotImplemented    = meta.NewError(meta.ErrNotImplemented, "not implemted type", nil)
+	errCodeFieldNumber   = meta.NewError(meta.ErrConvert, "invalid field number", nil)
+	errDecodeField       = meta.NewError(meta.ErrRead, "cannot parse invalid wire-format data", nil)
 )
+
+// We append to an empty array rather than a nil []byte to get non-nil zero-length byte slices.
+var emptyBuf [0]byte
 
 // Serizalize data to byte array and reuse the memory
 type BinaryProtocol struct {
@@ -141,28 +147,28 @@ func (p *BinaryProtocol) AppendTag(num proto.Number, typ proto.WireType) error {
 }
 
 // ConsumeTag parses b as a varint-encoded tag, reporting its length.
-// This returns a negative length upon an error (see ParseError).
-func (p *BinaryProtocol) ConsumeTag(b []byte) (proto.Number, proto.WireType, int) {
-	v, n := protowire.ConsumeVarint(b)
+func (p *BinaryProtocol) ConsumeTag() (proto.Number, proto.WireType, int, error) {
+	v, n := protowire.ConsumeVarint((p.Buf)[p.Read:])
+	_, err := p.next(n)
 	if n < 0 {
-		return 0, 0, n
+		return 0, 0, n, errInvalidTag
 	}
 	if v>>3 > uint64(math.MaxInt32) {
-		return -1, 0, n
+		return -1, 0, n, errUnknonwField
 	}
 	num, typ := proto.Number(v>>3), proto.WireType(v&7)
 	if num < proto.MinValidNumber {
-		return 0, 0, proto.ErrCodeFieldNumber
+		return 0, 0, n, errCodeFieldNumber
 	}
-	return num, typ, n
+	return num, typ, n, err
 }
 
 // WriteBool
 func (p *BinaryProtocol) WriteBool(value bool) error {
 	if value {
-		return p.WriteUI64(uint64(1))
+		return p.WriteUint64(uint64(1))
 	} else {
-		return p.WriteUI64(uint64(0))
+		return p.WriteUint64(uint64(0))
 	}
 }
 
@@ -173,19 +179,19 @@ func (p *BinaryProtocol) WriteI32(value int32) error {
 }
 
 // WriteSint32
-func (p *BinaryProtocol) WriteSI32(value int32) error {
+func (p *BinaryProtocol) WriteSint32(value int32) error {
 	p.Buf = protowire.BinaryEncoder{}.EncodeSint32(p.Buf, value)
 	return nil
 }
 
 // WriteUint32
-func (p *BinaryProtocol) WriteUI32(value uint32) error {
+func (p *BinaryProtocol) WriteUint32(value uint32) error {
 	p.Buf = protowire.BinaryEncoder{}.EncodeUint32(p.Buf, value)
 	return nil
 }
 
 // Writefixed32
-func (p *BinaryProtocol) Writefixed32(value int32) error {
+func (p *BinaryProtocol) WriteFixed32(value int32) error {
 	v, err := p.malloc(4)
 	if err != nil {
 		return err
@@ -211,19 +217,19 @@ func (p *BinaryProtocol) WriteI64(value int64) error {
 }
 
 // WriteSint64
-func (p *BinaryProtocol) WriteSI64(value int64) error {
+func (p *BinaryProtocol) WriteSint64(value int64) error {
 	p.Buf = protowire.BinaryEncoder{}.EncodeSint64(p.Buf, value)
 	return nil
 }
 
 // WriteUint64
-func (p *BinaryProtocol) WriteUI64(value uint64) error {
+func (p *BinaryProtocol) WriteUint64(value uint64) error {
 	p.Buf = protowire.BinaryEncoder{}.EncodeUint64(p.Buf, value)
 	return nil
 }
 
 // Writefixed64
-func (p *BinaryProtocol) Writefixed64(value uint64) error {
+func (p *BinaryProtocol) WriteFixed64(value uint64) error {
 	v, err := p.malloc(8)
 	if err != nil {
 		return err
@@ -265,7 +271,7 @@ func (p *BinaryProtocol) WriteDouble(value float64) error {
 // WriteString
 func (p *BinaryProtocol) WriteString(value string) error {
 	if !utf8.ValidString(value) {
-		return errors.InvalidUTF8(value)
+		return meta.NewError(meta.ErrInvalidParam, value, nil)
 	}
 	p.Buf = protowire.BinaryEncoder{}.EncodeString(p.Buf, value)
 	return nil
@@ -353,7 +359,7 @@ func (p *BinaryProtocol) WriteAnyWithDesc(desc proto.FieldDescriptor, val interf
 		return p.WriteMap()
 	default:
 		if e := p.AppendTag(proto.Number(desc.Number()), wireTypes[desc.Kind()]); e != nil {
-			return errors.New("AppendTag failed : %v", e.Error())
+			return meta.NewError(meta.ErrWrite, "AppendTag failed", nil)
 		}
 		return p.WriteBaseTypeWithDesc(desc, val, cast, disallowUnknown, useFieldName)
 	}
@@ -375,7 +381,7 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 	case protoreflect.Kind(proto.EnumKind):
 		v, ok := val.(proto.EnumNumber)
 		if !ok {
-			return errors.New("WriteEnum error")
+			return meta.NewError(meta.ErrConvert, "WriteEnum error", nil)
 		}
 		p.WriteEnum(v)
 	case protoreflect.Kind(proto.Int32Kind):
@@ -399,7 +405,7 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 			}
 			v = int32(vv)
 		}
-		p.WriteSI32(v)
+		p.WriteSint32(v)
 	case protoreflect.Kind(proto.Uint32Kind):
 		v, ok := val.(uint32)
 		if !ok {
@@ -410,7 +416,7 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 			}
 			v = uint32(vv)
 		}
-		p.WriteUI32(v)
+		p.WriteUint32(v)
 	case protoreflect.Kind(proto.Int64Kind):
 		v, ok := val.(int64)
 		if !ok {
@@ -430,7 +436,7 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 				return err
 			}
 		}
-		p.WriteSI64(v)
+		p.WriteSint64(v)
 	case protoreflect.Kind(proto.Uint64Kind):
 		v, ok := val.(uint64)
 		if !ok {
@@ -441,7 +447,7 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 			}
 			v = uint64(vv)
 		}
-		p.WriteUI64(v)
+		p.WriteUint64(v)
 	case protoreflect.Kind(proto.Sfixed32Kind):
 		v, ok := val.(int32)
 		if !ok {
@@ -463,7 +469,7 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 			}
 			v = int32(vv)
 		}
-		p.Writefixed32(v)
+		p.WriteFixed32(v)
 	case protoreflect.Kind(proto.FloatKind):
 		v, ok := val.(float64)
 		if !ok {
@@ -507,7 +513,7 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 	case protoreflect.Kind(proto.StringKind):
 		v, ok := val.(string)
 		if !ok {
-			return errors.InvalidUTF8(string(fd.FullName()))
+			return meta.NewError(meta.ErrConvert, string(fd.FullName()), nil)
 		}
 		p.WriteString(v)
 	case protoreflect.Kind(proto.BytesKind):
@@ -537,7 +543,203 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd proto.FieldDescriptor, val int
 	// 	}
 	// 	b = protowire.AppendVarint(b, protowire.EncodeTag(fd.Number(), protowire.EndGroupType))
 	default:
-		return errors.New("invalid kind %v", fd.Kind())
+		return errUnsupportedType
 	}
 	return nil
+}
+
+// next ...
+func (p *BinaryProtocol) next(size int) ([]byte, error) {
+	if size <= 0 {
+		panic(errors.New("invalid size"))
+	}
+
+	l := len(p.Buf)
+	d := p.Read + size
+	if d > l {
+		return nil, io.EOF
+	}
+
+	ret := (p.Buf)[p.Read:d]
+	p.Read = d
+	return ret, nil
+}
+
+// ReadByte
+func (p *BinaryProtocol) ReadByte() (value byte, err error) {
+	buf, err := p.next(1)
+	if err != nil {
+		return value, err
+	}
+	return byte(buf[0]), err
+}
+
+// ReadBool
+func (p *BinaryProtocol) ReadBool() (bool, error) {
+	v, n := protowire.BinaryDecoder{}.DecodeBool((p.Buf)[p.Read:])
+	if n < 0 {
+		return false, errDecodeField
+	}
+	_, err := p.next(n)
+	return v, err
+}
+
+// ReadI32
+func (p *BinaryProtocol) ReadI32() (int32, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeInt32((p.Buf)[p.Read:])
+	if n < 0 {
+		return value, errDecodeField
+	}
+	_, err := p.next(n)
+	return value, err
+}
+
+// ReadSint32
+func (p *BinaryProtocol) ReadSint32() (int32, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeSint32((p.Buf)[p.Read:])
+	if n < 0 {
+		return value, errDecodeField
+	}
+	_, err := p.next(n)
+	return value, err
+}
+
+// ReadUint32
+func (p *BinaryProtocol) ReadUint32() (uint32, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeUint32((p.Buf)[p.Read:])
+	if n < 0 {
+		return value, errDecodeField
+	}
+	_, err := p.next(n)
+	return value, err
+}
+
+// ReadI64
+func (p *BinaryProtocol) ReadI64() (int64, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeInt64((p.Buf)[p.Read:])
+	if n < 0 {
+		return value, errDecodeField
+	}
+	_, err := p.next(n)
+	return value, err
+}
+
+// ReadSint64
+func (p *BinaryProtocol) ReadSint64() (int64, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeSint64((p.Buf)[p.Read:])
+	if n < 0 {
+		return value, errDecodeField
+	}
+	_, err := p.next(n)
+	return value, err
+}
+
+// ReadUint64
+func (p *BinaryProtocol) ReadUint64() (uint64, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeUint64((p.Buf)[p.Read:])
+	if n < 0 {
+		return value, errDecodeField
+	}
+	_, err := p.next(n)
+	return value, err
+}
+
+// ReadFixed32
+func (p *BinaryProtocol) ReadFixed32() (int32, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeFixed32((p.Buf)[p.Read:])
+	if n < 0 {
+		return int32(value), errDecodeField
+	}
+	_, err := p.next(n)
+	return int32(value), err
+}
+
+// ReadSFixed32
+func (p *BinaryProtocol) ReadSfixed32() (int32, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeFixed32((p.Buf)[p.Read:])
+	if n < 0 {
+		return int32(value), errDecodeField
+	}
+	_, err := p.next(n)
+	return int32(value), err
+}
+
+// ReadFloat
+func (p *BinaryProtocol) ReadFloat() (float32, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeFloat32((p.Buf)[p.Read:])
+	if n < 0 {
+		return value, errDecodeField
+	}
+	_, err := p.next(n)
+	return value, err
+}
+
+// ReadFixed64
+func (p *BinaryProtocol) ReadFixed64() (int64, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeFixed64((p.Buf)[p.Read:])
+	if n < 0 {
+		return int64(value), errDecodeField
+	}
+	_, err := p.next(n)
+	return int64(value), err
+}
+
+// ReadSFixed64
+func (p *BinaryProtocol) ReadSfixed64() (int64, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeFixed64((p.Buf)[p.Read:])
+	if n < 0 {
+		return int64(value), errDecodeField
+	}
+	_, err := p.next(n)
+	return int64(value), err
+}
+
+// ReadDouble
+func (p *BinaryProtocol) ReadDouble() (float64, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeFixed64((p.Buf)[p.Read:])
+	if n < 0 {
+		return math.Float64frombits(value), errDecodeField
+	}
+	_, err := p.next(n)
+	return math.Float64frombits(value), err
+}
+
+// ReadBytes
+func (p *BinaryProtocol) ReadBytes() ([]byte, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeBytes((p.Buf)[p.Read:])
+	if n < 0 {
+		return append(emptyBuf[:], value...), errDecodeField
+	}
+	_, err := p.next(n)
+	return append(emptyBuf[:], value...), err
+}
+
+// ReadLength
+func (p *BinaryProtocol) ReadLength() (int, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeUint64((p.Buf)[p.Read:])
+	if n < 0 {
+		return 0, errDecodeField
+	}
+	_, err := p.next(n)
+	return int(value), err
+}
+
+// ReadString
+func (p *BinaryProtocol) ReadString() (string, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeBytes((p.Buf)[p.Read:])
+	if n < 0 {
+		return "", errDecodeField
+	}
+	_, err := p.next(n)
+	return string(value), err
+}
+
+// ReadEnum
+func (p *BinaryProtocol) ReadEnum() (proto.EnumNumber, error) {
+	value, n := protowire.BinaryDecoder{}.DecodeUint64((p.Buf)[p.Read:])
+	if n < 0 {
+		return 0, errDecodeField
+	}
+	_, err := p.next(n)
+	return proto.EnumNumber(value), err
 }
