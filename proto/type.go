@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -98,8 +99,12 @@ func FromProtoKindToType(kind ProtoKind, isList bool, isMap bool) Type {
 	}
 	return t
 }
+// IsInt tells if the type is one of I08, I16, I32, I64
+func (p Type) IsInt() bool {
+	return p == INT32 || p == INT64 || p == SFIX32 || p == SFIX32 || p == SINT64 || p == SINT32
+}
 
-type Number int32
+type Number = protowire.Number
 
 type FieldNumber = Number
 type EnumNumber = Number
