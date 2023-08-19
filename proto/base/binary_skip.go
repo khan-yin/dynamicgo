@@ -1,8 +1,6 @@
 package base
 
 import (
-	"io"
-
 	"github.com/cloudwego/dynamicgo/proto"
 )
 
@@ -98,84 +96,12 @@ func (p *BinaryProtocol) SkipGo(fieldType proto.Type, maxDepth int) (err error) 
 		_, err = p.ReadSint64()
 		return
 	case proto.LIST:
-		
+		return err
 	case proto.MAP:
-
+		return err
 	case proto.MESSAGE:
-		// if _, err = p.ReadStructBegin(); err != nil {
-		// 	return err
-		// }
-		for {
-			_, typeId, _, _ := p.ReadFieldBegin()
-			if typeId == STOP {
-				break
-			}
-			//fastpath
-			if n := typeSize[typeId]; n > 0 {
-				p.Read += n
-				if p.Read > len(p.Buf) {
-					return io.EOF
-				}
-				continue
-			}
-			err := p.SkipGo(typeId, maxDepth-1)
-			if err != nil {
-				return err
-			}
-			p.ReadFieldEnd()
-		}
-		return p.ReadStructEnd()
-	case MAP:
-		keyType, valueType, size, err := p.ReadMapBegin()
-		if err != nil {
-			return err
-		}
-		//fastpath
-		if k, v := typeSize[keyType], typeSize[valueType]; k > 0 && v > 0 {
-			p.Read += (k + v) * size
-			if p.Read > len(p.Buf) {
-				return io.EOF
-			}
-		} else {
-			if size > len(p.Buf)-p.Read {
-				return errInvalidDataSize
-			}
-			for i := 0; i < size; i++ {
-				err := p.SkipGo(keyType, maxDepth-1)
-				if err != nil {
-					return err
-				}
-				err = p.SkipGo(valueType, maxDepth-1)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		return p.ReadMapEnd()
-	case SET, LIST:
-		elemType, size, err := p.ReadListBegin()
-		if err != nil {
-			return err
-		}
-		//fastpath
-		if v := typeSize[elemType]; v > 0 {
-			p.Read += v * size
-			if p.Read > len(p.Buf) {
-				return io.EOF
-			}
-		} else {
-			if size > len(p.Buf)-p.Read {
-				return errInvalidDataSize
-			}
-			for i := 0; i < size; i++ {
-				err := p.SkipGo(elemType, maxDepth-1)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		return p.ReadListEnd()
+		return err
 	default:
-		return
+		return err
 	}
 }
