@@ -303,7 +303,8 @@ func (p *BinaryProtocol) WriteList(desc proto.FieldDescriptor,val interface{}) e
 		var pos int
 		p.Buf, pos = appendSpeculativeLength(p.Buf)
 		for _, v := range vs {
-			if err := p.WriteBaseTypeWithDesc(desc, v, true, false, true); err != nil {
+
+			if err := p.WriteAnyWithDesc(desc, v, true, false, true); err != nil {
 				return err
 			}
 		}
@@ -316,7 +317,7 @@ func (p *BinaryProtocol) WriteList(desc proto.FieldDescriptor,val interface{}) e
 	for _, v := range vs {
 		// share the same field number for Tag
 		p.AppendTag(desc.Number(), wireTypes[kind])
-		if err := p.WriteBaseTypeWithDesc(desc, v, true, false, true); err != nil {
+		if err := p.WriteAnyWithDesc(desc, v, true, false, true); err != nil {
 			return err
 		}
 	}
@@ -768,13 +769,20 @@ func (p *BinaryProtocol) ReadLength() (int, error) {
 }
 
 // ReadString
-func (p *BinaryProtocol) ReadString() (string, error) {
-	value, n := protowire.BinaryDecoder{}.DecodeBytes((p.Buf)[p.Read:])
+func (p *BinaryProtocol) ReadString(copy bool) (value string, err error) {
+	bytes, n := protowire.BinaryDecoder{}.DecodeBytes((p.Buf)[p.Read:])
 	if n < 0 {
 		return "", errDecodeField
 	}
-	_, err := p.next(n)
-	return string(value), err
+	if copy {
+		value = string(bytes)
+	} else {
+		v := (*rt.GoString)(unsafe.Pointer(&value))
+		v.Ptr = rt.IndexPtr(*(*unsafe.Pointer)(unsafe.Pointer(&p.Buf)), byteTypeSize, p.Read)
+		v.Len = int(n)
+	}
+	
+	return
 }
 
 // ReadEnum
