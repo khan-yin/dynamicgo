@@ -76,103 +76,103 @@ func NewNode(t proto.Type, src []byte) Node {
 }
 
 func NewNodeBool(val bool) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 1)
 	buf = protowire.BinaryEncoder{}.EncodeBool(buf, val)
 	return NewNode(proto.BOOL, buf)
 }
 
 func NewNodeByte(val byte) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0,1)
 	buf = protowire.BinaryEncoder{}.EncodeByte(buf, val)
 	return NewNode(proto.BYTE, buf)
 }
 
 func NewNodeEnum(val int32) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 4)
 	buf = protowire.BinaryEncoder{}.EncodeEnum(buf, val)
 	return NewNode(proto.ENUM, buf)
 }
 
 func NewNodeInt32(val int32) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 4)
 	buf = protowire.BinaryEncoder{}.EncodeInt32(buf, val)
 	return NewNode(proto.INT32, buf)
 }
 
 func NewNodeSint32(val int32) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 4)
 	buf = protowire.BinaryEncoder{}.EncodeSint32(buf, val)
 	return NewNode(proto.SINT32, buf)
 }
 
 func NewNodeUint32(val uint32) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 4)
 	buf = protowire.BinaryEncoder{}.EncodeUint32(buf, val)
 	return NewNode(proto.UINT32, buf)
 }
 
 func NewNodeFixed32(val uint32) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 4)
 	buf = protowire.BinaryEncoder{}.EncodeFixed32(buf, val)
 	return NewNode(proto.FIX32, buf)
 }
 
 func NewNodeSfixed32(val int32) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 4)
 	buf = protowire.BinaryEncoder{}.EncodeSfixed32(buf, val)
 	return NewNode(proto.SFIX32, buf)
 }
 
 func NewNodeInt64(val int64) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 8)
 	buf = protowire.BinaryEncoder{}.EncodeInt64(buf, val)
 	return NewNode(proto.INT64, buf)
 }
 
 func NewNodeSint64(val int64) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 8)
 	buf = protowire.BinaryEncoder{}.EncodeSint64(buf, val)
 	return NewNode(proto.SINT64, buf)
 }
 
 func NewNodeUint64(val uint64) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 8)
 	buf = protowire.BinaryEncoder{}.EncodeUint64(buf, val)
 	return NewNode(proto.UINT64, buf)
 }
 
 func NewNodeFixed64(val uint64) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 8)
 	buf = protowire.BinaryEncoder{}.EncodeFixed64(buf, val)
 	return NewNode(proto.FIX64, buf)
 }
 
 func NewNodeSfixed64(val int64) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 8)
 	buf = protowire.BinaryEncoder{}.EncodeSfixed64(buf, val)
 	return NewNode(proto.SFIX64, buf)
 }
 
 func NewNodeFloat(val float32) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 4)
 	buf = protowire.BinaryEncoder{}.EncodeFloat32(buf, val)
 	return NewNode(proto.FLOAT, buf)
 }
 
 func NewNodeDouble(val float64) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, 8)
 	buf = protowire.BinaryEncoder{}.EncodeDouble(buf, val)
 	return NewNode(proto.DOUBLE, buf)
 }
 
 func NewNodeString(val string) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, len(val)+4)
 	buf = protowire.BinaryEncoder{}.EncodeString(buf, val)
 	return NewNode(proto.STRING, buf)
 }
 
 func NewNodeBytes(val []byte) Node {
-	buf := make([]byte, 1)
+	buf := make([]byte, 0, len(val)+4)
 	buf = protowire.BinaryEncoder{}.EncodeBytes(buf, val)
 	return NewNode(proto.BYTE, buf)
 }
@@ -200,4 +200,6 @@ func NewComplexNode(t proto.Type, et proto.Type, kt proto.Type) (ret Node){
 	ret.t = t
 	return
 }
+
+
 
