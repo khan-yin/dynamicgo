@@ -893,12 +893,12 @@ func (p *BinaryProtocol) ReadList(desc *proto.FieldDescriptor, copyString bool, 
 	return list, nil
 }
 
-func (p *BinaryProtocol) ReadPair(desc *proto.FieldDescriptor, copyString bool, disallowUnknonw bool, useFieldName bool) (interface{}, interface{}, error) {
-	key, err := p.ReadAnyWithDesc(desc, proto.BytesType, copyString, disallowUnknonw, useFieldName)
+func (p *BinaryProtocol) ReadPair(keyDesc *proto.FieldDescriptor,valueDesc *proto.FieldDescriptor, copyString bool, disallowUnknonw bool, useFieldName bool) (interface{}, interface{}, error) {
+	key, err := p.ReadAnyWithDesc(keyDesc, copyString, disallowUnknonw, useFieldName)
 	if err != nil {
 		return nil, nil, err
 	}
-	value, err := p.ReadAnyWithDesc(desc, proto.BytesType, copyString, disallowUnknonw, useFieldName)
+	value, err := p.ReadAnyWithDesc(valueDesc, copyString, disallowUnknonw, useFieldName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -909,13 +909,15 @@ func (p *BinaryProtocol) ReadPair(desc *proto.FieldDescriptor, copyString bool, 
 func (p *BinaryProtocol) ReadMap(desc *proto.FieldDescriptor, copyString bool, disallowUnknonw bool, useFieldName bool) (map[interface{}]interface{}, error) {
 	// make a map
 	map_kv := make(map[interface{}]interface{})
+	keyDesc := (*desc).MapKey()
+	valueDesc := (*desc).MapValue()
 	fieldNumber := (*desc).Number()
 	_, lengthErr := p.ReadLength()
 	if lengthErr != nil {
 		return nil, lengthErr
 	}
 
-	key, value, pairReadErr := p.ReadPair(desc, copyString, disallowUnknonw, useFieldName)
+	key, value, pairReadErr := p.ReadPair(&keyDesc, &valueDesc, copyString, disallowUnknonw, useFieldName)
 	if pairReadErr != nil {
 		return nil, pairReadErr
 	}
