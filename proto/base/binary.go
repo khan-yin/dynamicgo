@@ -938,7 +938,7 @@ func (p *BinaryProtocol) ReadMap(desc *proto.FieldDescriptor, copyString bool, d
 		if pairLenErr != nil {
 			return nil, pairLenErr
 		}
-		key, value, pairReadErr := p.ReadPair(desc, copyString, disallowUnknonw, useFieldName)
+		key, value, pairReadErr := p.ReadPair(&keyDesc, &valueDesc, copyString, disallowUnknonw, useFieldName)
 		if pairReadErr != nil {
 			return nil, pairReadErr
 		}
