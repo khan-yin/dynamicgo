@@ -100,6 +100,41 @@ func (p *BinaryProtocol) malloc(size int) ([]byte, error) {
 	return (p.Buf)[l:d], nil
 }
 
+// next ...
+func (p *BinaryProtocol) next(size int) ([]byte, error) {
+	if size <= 0 {
+		panic(errors.New("invalid size"))
+	}
+
+	l := len(p.Buf)
+	d := p.Read + size
+	if d > l {
+		return nil, io.EOF
+	}
+
+	ret := (p.Buf)[p.Read:d]
+	p.Read = d
+	return ret, nil
+}
+
+// Reset resets the buffer and read position
+func (p *BinaryProtocol) Reset() {
+	p.Read = 0
+	p.Buf = p.Buf[:0]
+}
+
+// RawBuf returns the raw buffer of the protocol
+func (p *BinaryProtocol) RawBuf() []byte {
+	return p.Buf
+}
+
+// Left returns the left bytes to read
+func (p *BinaryProtocol) Left() int {
+	return len(p.Buf) - p.Read
+}
+
+
+// BinaryProtocol Method
 func NewBinaryProtol(buf []byte) *BinaryProtocol {
 	bp := bpPool.Get().(*BinaryProtocol)
 	bp.Buf = buf
@@ -121,26 +156,10 @@ func (p *BinaryProtocol) Recycle() {
 	bpPool.Put(p)
 }
 
-// Reset resets the buffer and read position
-func (p *BinaryProtocol) Reset() {
-	p.Read = 0
-	p.Buf = p.Buf[:0]
-}
-
-// RawBuf returns the raw buffer of the protocol
-func (p *BinaryProtocol) RawBuf() []byte {
-	return p.Buf
-}
-
-// Left returns the left bytes to read
-func (p *BinaryProtocol) Left() int {
-	return len(p.Buf) - p.Read
-}
-
 // Append Tag
 func (p *BinaryProtocol) AppendTag(num proto.Number, typ proto.WireType) error {
 	tag := uint64(num)<<3 | uint64(typ&7)
-	p.Buf = protowire.BinaryEncoder{}.EncodeInt64(p.Buf, int64(tag))
+	p.Buf = protowire.BinaryEncoder{}.EncodeUint64(p.Buf, tag)
 	return nil
 }
 
@@ -177,6 +196,35 @@ func (p *BinaryProtocol) ConsumeTagWithoutMove() (proto.Number, proto.WireType, 
 	return num, typ, n, nil
 }
 
+
+// When encoding length-prefixed fields, we speculatively set aside some number of bytes
+// for the length, encode the data, and then encode the length (shifting the data if necessary
+// to make room).
+const speculativeLength = 1
+
+func appendSpeculativeLength(b []byte) ([]byte, int) {
+	pos := len(b)
+	b = append(b, "\x00\x00\x00\x00"[:speculativeLength]...)
+	return b, pos
+}
+
+func finishSpeculativeLength(b []byte, pos int) []byte {
+	mlen := len(b) - pos - speculativeLength
+	msiz := protowire.SizeVarint(uint64(mlen))
+	if msiz != speculativeLength {
+		for i := 0; i < msiz-speculativeLength; i++ {
+			b = append(b, 0)
+		}
+		copy(b[pos+msiz:], b[pos+speculativeLength:])
+		b = b[:pos+msiz+mlen]
+	}
+	protowire.AppendVarint(b[:pos], uint64(mlen))
+	return b
+}
+
+/**
+ * Write methods
+ */
 
 // WriteBool
 func (p *BinaryProtocol) WriteBool(value bool) error {
@@ -402,49 +450,6 @@ func (p *BinaryProtocol) WriteMessageSlow(desc *proto.FieldDescriptor, val inter
 	return nil
 }
 
-// When encoding length-prefixed fields, we speculatively set aside some number of bytes
-// for the length, encode the data, and then encode the length (shifting the data if necessary
-// to make room).
-const speculativeLength = 1
-
-func appendSpeculativeLength(b []byte) ([]byte, int) {
-	pos := len(b)
-	b = append(b, "\x00\x00\x00\x00"[:speculativeLength]...)
-	return b, pos
-}
-
-func finishSpeculativeLength(b []byte, pos int) []byte {
-	mlen := len(b) - pos - speculativeLength
-	msiz := protowire.SizeVarint(uint64(mlen))
-	if msiz != speculativeLength {
-		for i := 0; i < msiz-speculativeLength; i++ {
-			b = append(b, 0)
-		}
-		copy(b[pos+msiz:], b[pos+speculativeLength:])
-		b = b[:pos+msiz+mlen]
-	}
-	protowire.AppendVarint(b[:pos], uint64(mlen))
-	return b
-}
-
-// WriteAnyWithDesc explain desc and val and write them into buffer
-//   - LIST/SET will be converted from []interface{}
-//   - MAP will be converted from map[string]interface{} or map[int]interface{}
-//   - STRUCT will be converted from map[FieldID]interface{}
-func (p *BinaryProtocol) WriteAnyWithDesc(desc *proto.FieldDescriptor, val interface{}, cast bool, disallowUnknown bool, useFieldName bool) error {
-	fd := *desc
-	switch {
-	case fd.IsList():
-		return p.WriteList(desc, val)
-	case fd.IsMap():
-		return p.WriteMap(desc, val)
-	default:
-		if e := p.AppendTag(proto.Number(fd.Number()), wireTypes[fd.Kind()]); e != nil {
-			return meta.NewError(meta.ErrWrite, "AppenddescTag failed", nil)
-		}
-		return p.WriteBaseTypeWithDesc(desc, val, cast, disallowUnknown, useFieldName)
-	}
-}
 
 // WriteBaseType with desc, not thread safe
 func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd *proto.FieldDescriptor, val interface{}, cast bool, disallowUnknown bool, useFieldName bool) error {
@@ -626,22 +631,31 @@ func (p *BinaryProtocol) WriteBaseTypeWithDesc(fd *proto.FieldDescriptor, val in
 	return nil
 }
 
-// next ...
-func (p *BinaryProtocol) next(size int) ([]byte, error) {
-	if size <= 0 {
-		panic(errors.New("invalid size"))
+// WriteAnyWithDesc explain desc and val and write them into buffer
+//   - LIST/SET will be converted from []interface{}
+//   - MAP will be converted from map[string]interface{} or map[int]interface{}
+//   - STRUCT will be converted from map[FieldNumber]interface{} or map[string]interface{}
+func (p *BinaryProtocol) WriteAnyWithDesc(desc *proto.FieldDescriptor, val interface{}, cast bool, disallowUnknown bool, useFieldName bool) error {
+	fd := *desc
+	switch {
+	case fd.IsList():
+		return p.WriteList(desc, val)
+	case fd.IsMap():
+		return p.WriteMap(desc, val)
+	default:
+		if e := p.AppendTag(proto.Number(fd.Number()), wireTypes[fd.Kind()]); e != nil {
+			return meta.NewError(meta.ErrWrite, "AppenddescTag failed", nil)
+		}
+		return p.WriteBaseTypeWithDesc(desc, val, cast, disallowUnknown, useFieldName)
 	}
-
-	l := len(p.Buf)
-	d := p.Read + size
-	if d > l {
-		return nil, io.EOF
-	}
-
-	ret := (p.Buf)[p.Read:d]
-	p.Read = d
-	return ret, nil
 }
+
+
+
+
+/**
+ * Read methods
+ */
 
 // ReadByte
 func (p *BinaryProtocol) ReadByte() (value byte, err error) {
@@ -826,7 +840,6 @@ func (p *BinaryProtocol) ReadString(copy bool) (value string, err error) {
 		v.Len = int(n)
 	}
 	_, err = p.next(n)
-
 	return
 }
 
@@ -842,15 +855,13 @@ func (p *BinaryProtocol) ReadEnum() (proto.EnumNumber, error) {
 
 // ReadList
 func (p *BinaryProtocol) ReadList(desc *proto.FieldDescriptor, copyString bool, disallowUnknonw bool, useFieldName bool) ([]interface{}, error) {
-	elementKind := (*desc).Kind()
-	elementWiretype := wireTypes[elementKind]
-	fieldNumber,wireType, _ ,err := p.ConsumeTag()
-	if err != nil {
-		return nil, err
+	fieldNumber, wtyp, _, listTagErr := p.ConsumeTag()
+	if listTagErr != nil {
+		return nil, meta.NewError(meta.ErrRead, "ConsumeTag failed", nil)
 	}
 	list := make([]interface{}, 0, 1)
 	// packed list
-	if wireType == proto.BytesType {
+	if wtyp == proto.BytesType {
 		// read length
 		length, err := p.ReadLength()
 		if err != nil {
@@ -859,15 +870,14 @@ func (p *BinaryProtocol) ReadList(desc *proto.FieldDescriptor, copyString bool, 
 		// read list
 		start := p.Read
 		for p.Read < start+length {
-			v, err := p.ReadBaseTypeWithDesc(desc, elementWiretype, copyString, disallowUnknonw, useFieldName)
+			v, err := p.ReadBaseTypeWithDesc(desc, copyString, disallowUnknonw, useFieldName)
 			if err != nil {
 				return nil, err
 			}
 			list = append(list, v)
 		}
-
 	} else {
-		v, err := p.ReadBaseTypeWithDesc(desc, elementWiretype, copyString, disallowUnknonw, useFieldName)
+		v, err := p.ReadBaseTypeWithDesc(desc, copyString, disallowUnknonw, useFieldName)
 		if err != nil {
 			return nil, err
 		}
@@ -882,8 +892,7 @@ func (p *BinaryProtocol) ReadList(desc *proto.FieldDescriptor, copyString bool, 
 				break
 			}
 			p.Read += n
-			
-			v, err := p.ReadBaseTypeWithDesc(desc, elementWiretype, copyString, disallowUnknonw, useFieldName)
+			v, err := p.ReadBaseTypeWithDesc(desc, copyString, disallowUnknonw, useFieldName)
 			if err != nil {
 				return nil, err
 			}
@@ -898,6 +907,7 @@ func (p *BinaryProtocol) ReadPair(keyDesc *proto.FieldDescriptor,valueDesc *prot
 	if err != nil {
 		return nil, nil, err
 	}
+
 	value, err := p.ReadAnyWithDesc(valueDesc, copyString, disallowUnknonw, useFieldName)
 	if err != nil {
 		return nil, nil, err
@@ -908,10 +918,19 @@ func (p *BinaryProtocol) ReadPair(keyDesc *proto.FieldDescriptor,valueDesc *prot
 // ReadMap
 func (p *BinaryProtocol) ReadMap(desc *proto.FieldDescriptor, copyString bool, disallowUnknonw bool, useFieldName bool) (map[interface{}]interface{}, error) {
 	// make a map
+	fieldNumber, mapWireType, _, mapTagErr := p.ConsumeTag()
+	if mapTagErr != nil {
+		return nil, meta.NewError(meta.ErrRead, "ConsumeTag failed", nil)
+	}
+
+	if mapWireType != proto.BytesType {
+		return nil, meta.NewError(meta.ErrRead, "mapWireType is not BytesType", nil)
+	}
+
 	map_kv := make(map[interface{}]interface{})
 	keyDesc := (*desc).MapKey()
 	valueDesc := (*desc).MapValue()
-	fieldNumber := (*desc).Number()
+
 	_, lengthErr := p.ReadLength()
 	if lengthErr != nil {
 		return nil, lengthErr
@@ -959,16 +978,16 @@ func (p *BinaryProtocol) ReadAnyWithDesc(desc *proto.FieldDescriptor, copyString
 	case (*desc).IsMap():
 		return p.ReadMap(desc, copyString, disallowUnknonw, useFieldName)
 	default:
-		_, wtyp, _, err := p.ConsumeTag()
+		_, _, _, err := p.ConsumeTag()
 		if err != nil {
 			return nil, meta.NewError(meta.ErrRead, "ConsumeTag failed", nil)
 		}
-		return p.ReadBaseTypeWithDesc(desc, wtyp, copyString, disallowUnknonw, useFieldName)
+		return p.ReadBaseTypeWithDesc(desc, copyString, disallowUnknonw, useFieldName)
 	}
 }
 
 // ReadBaseType with desc, not thread safe
-func (p *BinaryProtocol) ReadBaseTypeWithDesc(desc *proto.FieldDescriptor, wtyp proto.WireType, copyString bool, disallowUnknown bool, useFieldName bool) (interface{}, error) {
+func (p *BinaryProtocol) ReadBaseTypeWithDesc(desc *proto.FieldDescriptor, copyString bool, disallowUnknown bool, useFieldName bool) (interface{}, error) {
 	switch (*desc).Kind() {
 	case protoreflect.BoolKind:
 		v, e := p.ReadBool()
@@ -1035,7 +1054,7 @@ func (p *BinaryProtocol) ReadBaseTypeWithDesc(desc *proto.FieldDescriptor, wtyp 
 		}
 		start := p.Read
 		for p.Read < start + length {
-			fieldNumber, _, _, fieldTagErr := p.ConsumeTag()
+			fieldNumber, _, _, fieldTagErr := p.ConsumeTagWithoutMove()
 			if fieldTagErr != nil {
 				return nil, fieldTagErr
 			}
@@ -1044,6 +1063,8 @@ func (p *BinaryProtocol) ReadBaseTypeWithDesc(desc *proto.FieldDescriptor, wtyp 
 				if !disallowUnknown {
 					return nil, errUnknonwField
 				}
+				// TODO: p.Read += tagLen
+				// p.Skip()
 				continue
 			}
 			v, fieldErr := p.ReadAnyWithDesc(&field, copyString, disallowUnknown, useFieldName)
