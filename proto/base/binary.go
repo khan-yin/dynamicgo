@@ -894,11 +894,11 @@ func (p *BinaryProtocol) ReadList(desc *proto.FieldDescriptor, copyString bool, 
 }
 
 func (p *BinaryProtocol) ReadPair(desc *proto.FieldDescriptor, copyString bool, disallowUnknonw bool, useFieldName bool) (interface{}, interface{}, error) {
-	key, err := p.ReadBaseTypeWithDesc(desc, proto.BytesType, copyString, disallowUnknonw, useFieldName)
+	key, err := p.ReadAnyWithDesc(desc, proto.BytesType, copyString, disallowUnknonw, useFieldName)
 	if err != nil {
 		return nil, nil, err
 	}
-	value, err := p.ReadBaseTypeWithDesc(desc, proto.BytesType, copyString, disallowUnknonw, useFieldName)
+	value, err := p.ReadAnyWithDesc(desc, proto.BytesType, copyString, disallowUnknonw, useFieldName)
 	if err != nil {
 		return nil, nil, err
 	}
