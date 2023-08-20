@@ -117,3 +117,6 @@ const (
 	MaxValidNumber        Number = 1<<29 - 1
 	DefaultRecursionLimit        = 10000
 )
+
+
+type FieldName = protoreflect.Name
