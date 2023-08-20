@@ -24,27 +24,7 @@ const (
 	defaultListSize   = 10
 )
 
-// map from proto.ProtoKind to proto.WireType
-var wireTypes = map[proto.ProtoKind]proto.WireType{
-	proto.BoolKind:     proto.VarintType,
-	proto.EnumKind:     proto.VarintType,
-	proto.Int32Kind:    proto.VarintType,
-	proto.Sint32Kind:   proto.VarintType,
-	proto.Uint32Kind:   proto.VarintType,
-	proto.Int64Kind:    proto.VarintType,
-	proto.Sint64Kind:   proto.VarintType,
-	proto.Uint64Kind:   proto.VarintType,
-	proto.Sfixed32Kind: proto.Fixed32Type,
-	proto.Fixed32Kind:  proto.Fixed32Type,
-	proto.FloatKind:    proto.Fixed32Type,
-	proto.Sfixed64Kind: proto.Fixed64Type,
-	proto.Fixed64Kind:  proto.Fixed64Type,
-	proto.DoubleKind:   proto.Fixed64Type,
-	proto.StringKind:   proto.BytesType,
-	proto.BytesKind:    proto.BytesType,
-	proto.MessageKind:  proto.BytesType,
-	proto.GroupKind:    proto.StartGroupType,
-}
+
 
 var (
 	errDismatchPrimitive = meta.NewError(meta.ErrDismatchType, "dismatch primitive types", nil)
@@ -380,7 +360,7 @@ func (p *BinaryProtocol) WriteList(desc *proto.FieldDescriptor, val interface{})
 	kind := fd.Kind()
 	for _, v := range vs {
 		// share the same field number for Tag
-		p.AppendTag(fd.Number(), wireTypes[kind])
+		p.AppendTag(fd.Number(), proto.Kind2Wire[kind])
 		if err := p.WriteBaseTypeWithDesc(desc,v,true,false,true); err != nil {
 			return err
 		}
@@ -643,7 +623,7 @@ func (p *BinaryProtocol) WriteAnyWithDesc(desc *proto.FieldDescriptor, val inter
 	case fd.IsMap():
 		return p.WriteMap(desc, val)
 	default:
-		if e := p.AppendTag(proto.Number(fd.Number()), wireTypes[fd.Kind()]); e != nil {
+		if e := p.AppendTag(proto.Number(fd.Number()), proto.Kind2Wire[fd.Kind()]); e != nil {
 			return meta.NewError(meta.ErrWrite, "AppenddescTag failed", nil)
 		}
 		return p.WriteBaseTypeWithDesc(desc, val, cast, disallowUnknown, useFieldName)
@@ -1054,7 +1034,7 @@ func (p *BinaryProtocol) ReadBaseTypeWithDesc(desc *proto.FieldDescriptor, copyS
 		}
 		start := p.Read
 		for p.Read < start + length {
-			fieldNumber, _, _, fieldTagErr := p.ConsumeTagWithoutMove()
+			fieldNumber, _, tagLen, fieldTagErr := p.ConsumeTagWithoutMove()
 			if fieldTagErr != nil {
 				return nil, fieldTagErr
 			}
@@ -1063,7 +1043,8 @@ func (p *BinaryProtocol) ReadBaseTypeWithDesc(desc *proto.FieldDescriptor, copyS
 				if !disallowUnknown {
 					return nil, errUnknonwField
 				}
-				// TODO: p.Read += tagLen
+				p.Read += tagLen
+				// TODO: 
 				// p.Skip()
 				continue
 			}
