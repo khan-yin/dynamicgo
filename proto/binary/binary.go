@@ -1,4 +1,4 @@
-package base
+package binary
 
 import (
 	"encoding/binary"
@@ -648,6 +648,32 @@ func (p *BinaryProtocol) ReadBool() (bool, error) {
 	return v, err
 }
 
+// ReadInt ...
+func (p *BinaryProtocol) ReadInt(t proto.Type) (value int, err error) {
+	switch t {
+	case proto.INT32:
+		n, err := p.ReadI32()
+		return int(n), err
+	case proto.SINT32:
+		n, err := p.ReadSint32()
+		return int(n), err
+	case proto.SFIX32:
+		n, err := p.ReadSfixed32()
+		return int(n), err
+	case proto.INT64:
+		n, err := p.ReadI64()
+		return int(n), err
+	case proto.SINT64:
+		n, err := p.ReadSint64()
+		return int(n), err
+	case proto.SFIX64:
+		n, err := p.ReadSfixed64()
+		return int(n), err
+	default:
+		return 0, errInvalidDataType
+	}
+}
+
 // ReadI32
 func (p *BinaryProtocol) ReadI32() (int32, error) {
 	value, n := protowire.BinaryDecoder{}.DecodeInt32((p.Buf)[p.Read:])
@@ -709,13 +735,13 @@ func (p *BinaryProtocol) ReadUint64() (uint64, error) {
 }
 
 // ReadVarint return data、length、error
-func (p *BinaryProtocol) ReadVarint() (uint64, int, error) {
+func (p *BinaryProtocol) ReadVarint() (uint64, error) {
 	value, n := protowire.BinaryDecoder{}.DecodeUint64((p.Buf)[p.Read:])
 	if n < 0 {
-		return value, -1, errDecodeField
+		return value, errDecodeField
 	}
 	_, err := p.next(n)
-	return value, n, err
+	return value, err
 }
 
 // ReadFixed32
@@ -1033,18 +1059,18 @@ func (p *BinaryProtocol) ReadBaseTypeWithDesc(desc *proto.FieldDescriptor, copyS
 		// read repeat until sumLength equals MessageLength
 		start := p.Read
 		for p.Read < start+length {
-			fieldNumber, _, tagLen, fieldTagErr := p.ConsumeTagWithoutMove()
+			fieldNumber, wireType, tagLen, fieldTagErr := p.ConsumeTagWithoutMove()
 			if fieldTagErr != nil {
 				return nil, fieldTagErr
 			}
 			field := fields.ByNumber(fieldNumber)
 			if field == nil {
-				if !disallowUnknown {
+				if disallowUnknown {
 					return nil, errUnknonwField
 				}
-				p.Read += tagLen
-				// TODO:
-				// p.Skip()
+				p.Read += tagLen // move Read cross tag
+				// skip unknown field value
+				p.Skip(wireType, false)
 				continue
 			}
 			v, fieldErr := p.ReadAnyWithDesc(&field, copyString, disallowUnknown, useFieldName)

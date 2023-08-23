@@ -10,7 +10,7 @@ import (
 	"github.com/cloudwego/dynamicgo/internal/rt"
 	"github.com/cloudwego/dynamicgo/meta"
 	"github.com/cloudwego/dynamicgo/proto"
-	"github.com/cloudwego/dynamicgo/proto/base"
+	"github.com/cloudwego/dynamicgo/proto/binary"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -40,7 +40,7 @@ func unwrapError(msg string, err error) error {
 
 func (self *ProtoConv) do(ctx context.Context, src []byte, desc *proto.MessageDescriptor, out *[]byte, resp http.ResponseSetter) (err error) {
 	rt.GuardSlice(out, len(src)*_GUARD_SLICE_FACTOR)
-	var p = base.BinaryProtocol{
+	var p = binary.BinaryProtocol{
 		Buf: src,
 	}
 
@@ -99,7 +99,7 @@ func (self *ProtoConv) do(ctx context.Context, src []byte, desc *proto.MessageDe
 }
 
 // parse MessageField recursive
-func (self *ProtoConv) doRecurse(ctx context.Context, fd *proto.FieldDescriptor, out *[]byte, resp http.ResponseSetter, p *base.BinaryProtocol, typeId proto.WireType) error {
+func (self *ProtoConv) doRecurse(ctx context.Context, fd *proto.FieldDescriptor, out *[]byte, resp http.ResponseSetter, p *binary.BinaryProtocol, typeId proto.WireType) error {
 	switch {
 	case (*fd).IsList():
 		return self.unmarshalList(ctx, resp, p, typeId, out, fd)
@@ -111,7 +111,7 @@ func (self *ProtoConv) doRecurse(ctx context.Context, fd *proto.FieldDescriptor,
 }
 
 // parse Singular MessageType
-func (self *ProtoConv) unmarshalSingular(ctx context.Context, resp http.ResponseSetter, p *base.BinaryProtocol, out *[]byte, fd *proto.FieldDescriptor) (err error) {
+func (self *ProtoConv) unmarshalSingular(ctx context.Context, resp http.ResponseSetter, p *binary.BinaryProtocol, out *[]byte, fd *proto.FieldDescriptor) (err error) {
 	switch (*fd).Kind() {
 	case protoreflect.BoolKind:
 		v, e := p.ReadBool()
@@ -264,7 +264,7 @@ func (self *ProtoConv) unmarshalSingular(ctx context.Context, resp http.Response
 }
 
 // parse ListType
-func (self *ProtoConv) unmarshalList(ctx context.Context, resp http.ResponseSetter, p *base.BinaryProtocol, typeId proto.WireType, out *[]byte, fd *proto.FieldDescriptor) (err error) {
+func (self *ProtoConv) unmarshalList(ctx context.Context, resp http.ResponseSetter, p *binary.BinaryProtocol, typeId proto.WireType, out *[]byte, fd *proto.FieldDescriptor) (err error) {
 	*out = json.EncodeArrayBegin(*out)
 
 	fileldNumber := (*fd).Number()
@@ -308,7 +308,7 @@ func (self *ProtoConv) unmarshalList(ctx context.Context, resp http.ResponseSett
 // parse MapType
 // Map bytes format: [Pairtag][Pairlength][keyTag(L)V][valueTag(L)V] [Pairtag][Pairlength][T(L)V][T(L)V]...
 // Pairtag = MapFieldnumber << 3 | wiretype:BytesType
-func (self *ProtoConv) unmarshalMap(ctx context.Context, resp http.ResponseSetter, p *base.BinaryProtocol, typeId proto.WireType, out *[]byte, fd *proto.FieldDescriptor) (err error) {
+func (self *ProtoConv) unmarshalMap(ctx context.Context, resp http.ResponseSetter, p *binary.BinaryProtocol, typeId proto.WireType, out *[]byte, fd *proto.FieldDescriptor) (err error) {
 	fileldNumber := (*fd).Number()
 	_, lengthErr := p.ReadLength()
 	if lengthErr != nil {
