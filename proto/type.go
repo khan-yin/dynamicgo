@@ -137,6 +137,54 @@ func (p Type) IsComplex() bool {
 	return p == MESSAGE || p == MAP || p == LIST
 }
 
+// String for format and print
+func (p Type) String() string {
+	switch p {
+	case UNKNOWN:
+		return "UNKNOWN"
+	case BOOL:
+		return "BOOL"
+	case ENUM:
+		return "ENUM"
+	case BYTE:
+		return "BYTE"
+	case INT32:
+		return "INT32"
+	case SINT32:
+		return "SINT32"
+	case UINT32:
+		return "UINT32"
+	case SFIX32:
+		return "SFIX32"
+	case FIX32:
+		return "FIX32"
+	case INT64:
+		return "INT64"
+	case SINT64:
+		return "SINT64"
+	case UINT64:
+		return "UINT64"
+	case SFIX64:
+		return "SFIX64"
+	case FIX64:
+		return "FIX64"
+	case FLOAT:
+		return "FLOAT"
+	case DOUBLE:
+		return "DOUBLE"
+	case STRING:
+		return "STRING"
+	case MESSAGE:
+		return "MESSAGE"
+	case LIST:
+		return "LIST"
+	case MAP:
+		return "MAP"
+	default:
+		return "ERROR"
+	}
+}
+
 type Number = protowire.Number
 
 type FieldNumber = Number
