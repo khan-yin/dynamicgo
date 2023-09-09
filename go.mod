@@ -17,3 +17,7 @@ require (
 	google.golang.org/protobuf v1.31.0
 
 )
+
+replace github.com/apache/thrift => github.com/apache/thrift v0.13.0
+
+replace github.com/stretchr/testify => github.com/stretchr/testify v1.8.2
