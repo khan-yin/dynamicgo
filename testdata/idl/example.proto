@@ -88,7 +88,7 @@ message Nests {
 // Message type used as submessage.
 message Nested {
   string s_string = 1;
-  Nested s_nested = 2;
+  InnerBase Base = 2;
 }
 
 // Message contains oneof field.
@@ -134,7 +134,7 @@ message InnerBase {
   string s_string = 13;
 }
 
-message ExampleReq {
+message ExampleScalarsReq {
   optional string Msg = 1;
   optional double Cookie = 2;
   string Path = 3;
@@ -144,15 +144,33 @@ message ExampleReq {
   InnerBase InnerBase = 7;
   string RawUri = 8;
   double Subfix = 9;
+  Scalars scalars = 10;
 }
 
-message ExampleResp {
+message ExampleScalarsResp {
   string Msg = 1;
   optional double Cookie = 2;
   int32 Status = 3;
   optional bool Header = 4;
   int64 Code = 5;
   double Subfix = 6;
+  Scalars scalars = 7;
+}
+
+message ExampleMessageReq {
+  InnerBase Base = 1;
+}
+
+message ExampleMessageResp {
+  InnerBase Base = 1;
+}
+
+message ExampleNestedReq {
+  Nested TestNested = 1;
+}
+
+message ExampleNestedResp {
+  Nested TestNested = 1;
 }
 
 message ExampleParitalReq {
@@ -164,11 +182,42 @@ message ExampleParitalReq {
 }
 
 message ExamplePartialResp {
-  string Msg = 1;
+  string ShortEnglishMsg = 1;
+  string ChineseMsg = 2;
+  string LongEnglishMsg = 3;
+}
+
+message ExampleListReq {
+  Repeats TestList = 1;
+}
+
+message ExampleListResp {
+  Repeats TestList = 1;
+}
+
+message ExampleMapReq {
+  Maps TestMap = 1;
+}
+
+message ExampleMapResp {
+  Maps TestMap = 1;
+}
+
+message ExampleOneofReq {
+  Oneofs TestOneof = 1;
+}
+
+message ExampleOneofResp {
+  Oneofs TestOneof = 1;
 }
 
 // Test that RPC services work.
 service TestService {
-  rpc ExampleMethod(ExampleReq) returns (ExampleResp);
-  rpc PartialMethod(ExampleParitalReq) returns (ExamplePartialResp);
+  rpc ScalarsMethodTest(ExampleScalarsReq) returns (ExampleScalarsResp);
+  rpc MessageMethodTest(ExampleMessageReq) returns (ExampleMessageResp);
+  rpc NestedMethodTest(ExampleNestedReq) returns (ExampleNestedResp);
+  rpc PartialMethodTest(ExampleParitalReq) returns (ExamplePartialResp);
+  rpc ListMethodTest(ExampleListReq) returns (ExampleListResp);
+  rpc MapMethodTest(ExampleMapReq) returns (ExampleMapResp);
+  rpc OneofMethodTest(ExampleOneofReq) returns (ExampleOneofResp);
 }
