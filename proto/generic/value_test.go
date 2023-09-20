@@ -2,7 +2,10 @@ package generic
 
 import (
 	"context"
+	"fmt"
+	"io/ioutil"
 	"os"
+	"testing"
 
 	"github.com/cloudwego/dynamicgo/proto"
 	"github.com/cloudwego/dynamicgo/testdata/pb/testprotos"
@@ -16,7 +19,7 @@ const (
 )
 
 // parse protofile to get MessageDescriptor
-func getExampleDesc() *proto.FieldDescriptor {
+func getExample2Desc() *proto.MessageDescriptor {
 	svc, err := proto.NewDescritorFromPath(context.Background(), exampleIDLPath)
 	if err != nil {
 		panic(err)
@@ -26,7 +29,15 @@ func getExampleDesc() *proto.FieldDescriptor {
 	if res == nil {
 		panic("can't find Target MessageDescriptor")
 	}
-	return nil
+	return &res
+}
+
+func getExample2Data() []byte {
+	out, err := ioutil.ReadFile(exampleProtoPath)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }
 
 // build binaryData for example2.proto
@@ -89,4 +100,26 @@ func generateBinaryData() error {
 		panic("write protoBinary data failed")
 	}
 	return nil
+}
+
+func countHelper(count *int, ps []PathNode) {
+	*count += len(ps)
+	for _, p := range ps {
+		countHelper(count, p.Next)
+	}
+}
+
+func TestCount(t *testing.T) {
+	desc := getExample2Desc()
+	data := getExample2Data()
+	fmt.Printf("data len: %d\n", len(data))
+	v := NewRootValue(desc, data)
+	children := make([]PathNode, 0, 4)
+	opts := Options{}
+	if err := v.Children(&children, true, &opts, desc); err != nil {
+		t.Fatal(err)
+	}
+	count := 1
+	countHelper(&count, children)
+	fmt.Printf("nodes count: %d", count)
 }

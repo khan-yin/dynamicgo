@@ -301,8 +301,12 @@ func (self *PathNode) scanChildren(p *binary.BinaryProtocol, recurse bool, opts 
 	case proto.MESSAGE:
 		messageDesc := (*desc).(proto.MessageDescriptor)
 		fields := messageDesc.Fields()
-		p.ConsumeTag()
-		p.ReadLength()
+		num, wtyp, _, err := p.ConsumeTag()
+		if err != nil {
+			return errNode(meta.ErrRead, "", err)
+		}
+		fmt.Println("num:", num, "wtyp:", wtyp)
+		l, _ := p.ReadLength()
 
 		for p.Read < len(p.Buf){
 			fieldNumber, wireType, _, tagErr := p.ConsumeTag()
