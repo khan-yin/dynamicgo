@@ -15,7 +15,7 @@ enum FOO {
     FOO_A = 0;
 }
 
-message InnerBase {
+message InnerBase2 {
     bool Bool = 1;
     uint32 Uint32 = 2;
     uint64 Uint64 = 3;
@@ -34,8 +34,8 @@ message InnerBase {
     map<int64, string> MapInt64String = 16;
     // map<double, string> MapDoubleString = 17;
 
-    repeated InnerBase ListInnerBase = 18;
-    // map<InnerBase, InnerBase> MapInnerBaseInnerBase = 19;
+    repeated InnerBase2 ListInnerBase = 18;
+    // map<InnerBase2, InnerBase2> MapInnerBaseInnerBase = 19;
 
     Base Base = 255;
 }
@@ -60,7 +60,7 @@ message BasePartial {
 message ExampleReq {
     string Msg = 1;
     int32 A = 2;
-    InnerBase InnerBase = 3;
+    InnerBase2 InnerBase2 = 3;
     Base Base = 255;
     double Subfix = 32767;
 }
@@ -69,7 +69,7 @@ message ExampleReq {
 message ExampleSuper {
     string Msg = 1;
     int32 A = 2;
-    InnerBase InnerBase = 3;
+    InnerBase2 InnerBase2 = 3;
     string Ex1 = 4;
     string Ex2 = 5;
     string Ex3 = 6;
@@ -85,7 +85,7 @@ message SelfRef {
 
 message ExampleReqPartial {
     string Msg = 1;
-    InnerBasePartial InnerBase = 3;
+    InnerBasePartial InnerBase2 = 3;
     BasePartial Base = 255;
 }
 
@@ -122,7 +122,7 @@ message VoidResponse {
 }
 
 // Test that RPC services work.
-service TestService {
+service TestService2 {
   rpc ExampleMethod(ExampleReq) returns (ExampleResp);
   rpc ExamplePartialMethod(ExampleReqPartial) returns (A);
   rpc ExampleSuperMethod(ExampleSuper) returns (A);
