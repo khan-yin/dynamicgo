@@ -12,7 +12,7 @@ import "base.proto";
 option go_package = "./testprotos";
 
 enum FOO {
-    A = 1;
+    FOO_A = 0;
 }
 
 message InnerBase {
@@ -32,12 +32,12 @@ message InnerBase {
     map<uint32, string> MapUint32String = 14;
     map<uint64, string> MapUint64String = 15;
     map<int64, string> MapInt64String = 16;
-    map<double, string> MapDoubleString = 17;
+    // map<double, string> MapDoubleString = 17;
 
     repeated InnerBase ListInnerBase = 18;
     // map<InnerBase, InnerBase> MapInnerBaseInnerBase = 19;
 
-    base.Base Base = 255;
+    Base Base = 255;
 }
 
 
@@ -45,7 +45,7 @@ message InnerBasePartial {
     bool Bool = 1;
     repeated int32 ListInt32 = 8;
     map<string, string> MapStringString = 9;
-    map<double, string> MapDoubleString = 17;
+    // map<double, string> MapDoubleString = 17;
     repeated InnerBasePartial ListInnerBase = 18;
     // map<InnerBasePartial, InnerBasePartial> MapInnerBaseInnerBase = 19;
 
@@ -53,7 +53,7 @@ message InnerBasePartial {
 }
 
 message BasePartial {
-    base.TrafficEnv TrafficEnv = 5;
+    TrafficEnv TrafficEnv = 5;
 }
 
 
@@ -61,7 +61,7 @@ message ExampleReq {
     string Msg = 1;
     int32 A = 2;
     InnerBase InnerBase = 3;
-    base.Base Base = 255;
+    Base Base = 255;
     double Subfix = 32767;
 }
 
@@ -75,7 +75,7 @@ message ExampleSuper {
     string Ex3 = 6;
     string Ex4 = 7;
     SelfRef SelfRef = 9;
-    base.Base Base = 255;
+    Base Base = 255;
     double Subfix = 32767;
 }
 
@@ -93,7 +93,7 @@ message ExampleReqPartial {
 message ExampleResp {
     string Msg = 1;
     string required_field = 2;
-    base.BaseResp BaseResp = 255;
+    BaseResp BaseResp = 255;
 }
 
 message Exception {
@@ -105,6 +105,21 @@ message A {
     A self = 1;
 }
 
+message PingResponse {
+    string message = 1;
+}
+
+message OnewayRequest {
+    string msg = 1;
+}
+
+message VoidRequest {
+    string msg = 1;
+}
+
+message VoidResponse {
+    
+}
 
 // Test that RPC services work.
 service TestService {
@@ -112,7 +127,7 @@ service TestService {
   rpc ExamplePartialMethod(ExampleReqPartial) returns (A);
   rpc ExampleSuperMethod(ExampleSuper) returns (A);
   rpc Foo(A) returns (A);
-  rpc Ping(A) returns (string);
-  rpc Oneway(string) returns (google.protobuf.Empty);
-  rpc Void(string) returns (google.protobuf.Empty);
+  rpc Ping(A) returns (PingResponse);
+  rpc Oneway(OnewayRequest) returns (VoidResponse);
+  rpc Void(VoidRequest) returns (VoidResponse);
 }
