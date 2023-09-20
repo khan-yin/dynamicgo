@@ -213,7 +213,7 @@ func (self Node) Binary() ([]byte, error) {
 // BYTE?
 func (self Node) binary() ([]byte, error) {
 	switch self.t {
-	case proto.STRING:
+	case proto.BYTE:
 		v, _, _ := protowire.BinaryDecoder{}.DecodeBytes(rt.BytesFrom(self.v, int(self.l), int(self.l)))
 		return v, nil
 	default:
