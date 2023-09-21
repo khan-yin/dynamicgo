@@ -32,10 +32,11 @@ message InnerBase2 {
     map<uint32, string> MapUint32String = 14;
     map<uint64, string> MapUint64String = 15;
     map<int64, string> MapInt64String = 16;
-    // map<double, string> MapDoubleString = 17;
+    map<int64, Base> MapInt64Base = 17;
 
+    repeated Base ListBase = 19;
     repeated InnerBase2 ListInnerBase = 18;
-    // map<InnerBase2, InnerBase2> MapInnerBaseInnerBase = 19;
+    
 
     Base Base = 255;
 }
