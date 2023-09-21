@@ -301,19 +301,12 @@ func (self *PathNode) scanChildren(p *binary.BinaryProtocol, recurse bool, opts 
 	case proto.MESSAGE:
 		messageDesc := (*desc).(proto.MessageDescriptor)
 		fields := messageDesc.Fields()
-		num, wtyp, _, err := p.ConsumeTag()
-		if err != nil {
-			return errNode(meta.ErrRead, "", err)
-		}
-		fmt.Println("num:", num, "wtyp:", wtyp)
-		l, _ := p.ReadLength()
 
 		for p.Read < len(p.Buf){
 			fieldNumber, wireType, _, tagErr := p.ConsumeTag()
 			if tagErr != nil {
 				return errNode(meta.ErrRead, "", tagErr)
 			}
-
 			
 			// OPT: store children by id here, thus we can use id as index to access children.
 			if opts.StoreChildrenById {
@@ -503,6 +496,11 @@ func (self *PathNode) handleChild(in *[]PathNode, lp *int, cp *int, p *binary.Bi
 		parentDesc := (*desc).(proto.Descriptor)
 		if et == proto.MESSAGE {
 			parentDesc = (*desc).Message().(proto.Descriptor)
+			messageLen, err := p.ReadLength()
+			if messageLen<= 0 || err != nil {
+				panic("read message length failed")
+				return nil, errNode(meta.ErrRead, "", err)
+			}
 		}
 
 		if err := v.scanChildren(p, recurse, opts, &parentDesc); err != nil {
