@@ -7,9 +7,9 @@ syntax = "proto3";
 
 package pb3;
 
-import "../../testdata/idl/base.proto";
+import "base.proto";
 
-option go_package = "./testprotos";
+option go_package = "pb/example2";
 
 enum FOO {
     FOO_A = 0;
@@ -33,6 +33,7 @@ message InnerBase2 {
     map<uint64, string> MapUint64String = 15;
     map<int64, string> MapInt64String = 16;
     map<int64, Base> MapInt64Base = 17;
+    map<string, Base> MapStringBase = 20;
 
     repeated Base ListBase = 19;
     repeated InnerBase2 ListInnerBase = 18;
@@ -46,9 +47,9 @@ message InnerBasePartial {
     bool Bool = 1;
     repeated int32 ListInt32 = 8;
     map<string, string> MapStringString = 9;
-    // map<double, string> MapDoubleString = 17;
+    map<string, Base> MapStringBase = 20;
     repeated InnerBasePartial ListInnerBase = 18;
-    // map<InnerBasePartial, InnerBasePartial> MapInnerBaseInnerBase = 19;
+    repeated Base ListBase = 19;
 
     map<string, string> MapStringString2 = 127;
 }
