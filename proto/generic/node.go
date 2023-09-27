@@ -17,6 +17,7 @@ type Node struct {
 	kt proto.Type
 	v  unsafe.Pointer
 	l  int
+	size int // only for MAP/LIST length
 }
 
 // Fork forks the node to a new node, copy underlying data as well
@@ -43,7 +44,7 @@ func (self Node) KeyType() proto.Type {
 	return self.kt
 }
 
-func (self Node) slice(s int, e int, t proto.Type, kt proto.Type, et proto.Type) Node {
+func (self Node) slice(s int, e int, t proto.Type, kt proto.Type, et proto.Type, size int) Node {
 	ret := Node{
 		t: t,
 		l: (e - s),
@@ -51,9 +52,11 @@ func (self Node) slice(s int, e int, t proto.Type, kt proto.Type, et proto.Type)
 	}
 	if t == proto.LIST {
 		ret.et = et
+		ret.size = size
 	} else if t == proto.MAP {
 		ret.kt = kt
 		ret.et = et
+		ret.size = size
 	}
 	return ret
 }
