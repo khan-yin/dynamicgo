@@ -83,12 +83,6 @@ func NewNode(t proto.Type, src []byte) Node {
 		l: (len(src)),
 		v: rt.GetBytePtr(src),
 	}
-	if t == proto.LIST {
-		ret.et = *(*proto.Type)(unsafe.Pointer(ret.v))
-	} else if t == proto.MAP {
-		ret.kt = *(*proto.Type)(unsafe.Pointer(ret.v))
-		ret.et = *(*proto.Type)(rt.AddPtr(ret.v, uintptr(1)))
-	}
 	return ret
 }
 
@@ -194,10 +188,17 @@ func NewNodeBytes(val []byte) Node {
 	return NewNode(proto.BYTE, buf)
 }
 
-func NewComplexNode(t proto.Type, et proto.Type, kt proto.Type) (ret Node){
+// NewComplexNode can deal with all the types
+func NewComplexNode(t proto.Type, et proto.Type, kt proto.Type, src []byte) (ret Node){
 	if !t.Valid() {
 		panic("invalid node type")
 	}
+	ret = Node{
+		t: t,
+		l: (len(src)),
+		v: rt.GetBytePtr(src),
+	}
+
 	switch t {
 	case proto.LIST:
 		if !et.Valid() {
@@ -214,7 +215,7 @@ func NewComplexNode(t proto.Type, et proto.Type, kt proto.Type) (ret Node){
 		ret.et = et
 		ret.kt = kt
 	}
-	ret.t = t
+
 	return
 }
 
