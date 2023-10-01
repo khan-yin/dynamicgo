@@ -9,6 +9,7 @@ import (
 	"github.com/cloudwego/dynamicgo/proto"
 	"github.com/cloudwego/dynamicgo/proto/binary"
 	"github.com/cloudwego/dynamicgo/proto/protowire"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type Value struct {
@@ -581,32 +582,47 @@ func (self *Value) UnsetByPath(path ...Path) error {
 		return err
 	}
 	// search parent node by path
-	var v, _ = self.GetByPath(path[:l-1]...)
-	// search full node by path
-	var v2, address2 = self.GetByPath(path[:l]...)
-	if v2.IsError() {
-		if v2.IsErrNotFound() {
-			print(address2)
+	var parentValue Value
+	if l == 1 {
+		parentValue = *self
+	} else {
+		parentValue, _ = self.GetByPath(path[:l-1]...)
+	}
+	if parentValue.IsError() {
+		if parentValue.IsErrNotFound() {
 			return nil
 		}
-		return v2
+		return parentValue
 	}
 
-	if v.IsError() {
-		if v.IsErrNotFound() {
+	// search detail target node by path
+	var targetValue, address = self.GetByPath(path[:l]...)
+	if targetValue.IsError() {
+		if targetValue.IsErrNotFound() {
+			print(address)
 			return nil
 		}
-		return v
+		return targetValue
 	}
+
 	p := path[l-1]
+	var desc *protoreflect.Descriptor
+	var err error
 	// get parent node descriptor
-	desc, err := GetDescByPath(self.rootDesc, path[:l-1]...)
+	if l == 1 {
+		rootDesc := self.rootDesc
+		convDesc := (*rootDesc).(protoreflect.Descriptor)
+		desc = &convDesc
+	} else {
+		desc, err = GetDescByPath(self.rootDesc, path[:l-1]...)
+	}
+
+	// judge packed List mode
 	isPacked := false
 	if p.t == PathFieldName {
 		if err != nil {
 			return err
 		}
-
 		if d, ok := (*desc).(proto.MessageDescriptor); ok {
 			f := d.Fields().ByName(proto.FieldName(p.str()))
 			p = NewPathFieldId(f.Number())
@@ -622,7 +638,7 @@ func (self *Value) UnsetByPath(path ...Path) error {
 			isPacked = d.IsPacked()
 		}
 	}
-	ret := v.deleteChild(p)
+	ret := parentValue.deleteChild(p)
 	if ret.IsError() {
 		return ret
 	}
@@ -631,7 +647,7 @@ func (self *Value) UnsetByPath(path ...Path) error {
 	if err = self.replace(ret, Node{t: ret.t}); err != nil {
 		return errValue(meta.ErrWrite, "replace node by empty node failed", err)
 	}
-	self.UpdateByteLen(originLen, address2, isPacked, path...)
+	self.UpdateByteLen(originLen, address, isPacked, path...)
 	return nil
 }
 
