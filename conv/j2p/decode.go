@@ -1,13 +1,14 @@
 package j2p
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 	"unsafe"
 
 	"github.com/bytedance/sonic/ast"
+	"github.com/chenzhuoyu/base64x"
 	"github.com/cloudwego/dynamicgo/internal/rt"
 	"github.com/cloudwego/dynamicgo/meta"
 	"github.com/cloudwego/dynamicgo/proto"
@@ -15,67 +16,85 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-type visitorUserNode interface {
-	// add descriptor
-	UserNode(desc *proto.FieldDescriptor) interface{}
-}
+// memory resize factor
+const (
+	// new = old + old >> growSliceFactor
+	growStkFactory = 1
 
-type (
-	visitorUserNull    struct{}
-	visitorUserBool    struct{ Value bool }
-	visitorUserInt64   struct{ Value int64 }
-	visitorUserFloat64 struct{ Value float64 }
-	visitorUserString  struct{ Value string }
-	visitorUserObject  struct{ Value map[string]visitorUserNode }
-	visitorUserArray   struct{ Value []visitorUserNode }
+	defaultStkDepth = 128
 )
 
-// convert visitorUserNode dataFormat
-func (self *visitorUserNull) UserNode(desc *proto.FieldDescriptor) interface{} {
-	return nil
+var (
+	vuPool = sync.Pool{
+		New: func() interface{} {
+			return &VisitorUserNode{
+				sp:  0,
+				p:   binary.NewBinaryProtocolBuffer(),
+				stk: make([]VisitorUserNodeStack, defaultStkDepth),
+			}
+		},
+	}
+)
+
+// NewVisitorUserNode get a new VisitorUserNode from sync.Pool
+func NewVisitorUserNode(buf []byte) *VisitorUserNode {
+	vu := vuPool.Get().(*VisitorUserNode)
+	vu.p.Buf = buf
+	return vu
 }
 
-func (self *visitorUserBool) UserNode(desc *proto.FieldDescriptor) interface{} {
-	return nil
+// NewVisitorUserNode gets a new VisitorUserNode from sync.Pool
+// and reuse the buffer in pool
+func NewVisitorUserNodeBuffer() *VisitorUserNode {
+	vu := vuPool.Get().(*VisitorUserNode)
+	return vu
 }
 
-// pay attention to digital precision
-func (self *visitorUserInt64) UserNode(desc *proto.FieldDescriptor) interface{} {
-	return nil
+// FreeVisitorUserNode resets the buffer and puts the VisitorUserNode back to sync.Pool
+func FreeVisitorUserNodePool(vu *VisitorUserNode) {
+	vu.Reset()
+	vuPool.Put(vu)
 }
 
-func (self *visitorUserFloat64) UserNode(desc *proto.FieldDescriptor) interface{} {
-	return nil
+// Recycle put the VisitorUserNode back to sync.Pool
+func (self *VisitorUserNode) Recycle() {
+	self.Reset()
+	vuPool.Put(self)
 }
 
-func (self *visitorUserString) UserNode(desc *proto.FieldDescriptor) interface{} {
-	return nil
-}
-
-func (self *visitorUserObject) UserNode(desc *proto.FieldDescriptor) interface{} {
-	return nil
-}
-
-func (self *visitorUserArray) UserNode(desc *proto.FieldDescriptor) interface{} {
-	return nil
+// Reset resets the buffer and read position
+func (self *VisitorUserNode) Reset() {
+	self.sp = 0
+	self.p.Reset()
+	for i := 0; i < len(self.stk); i++ {
+		self.stk[i].Reset()
+	}
 }
 
 /** p use to encode pbEncode
  *  desc represent fieldDescriptor
  *  pos is used when encode message\mapValue\unpackedList
  */
-type visitorUserNodeVisitorDecoder struct {
-	stk visitorUserNodeStack
+type VisitorUserNode struct {
+	stk []VisitorUserNodeStack
 	sp  uint8
 	p   *binary.BinaryProtocol
 }
 
 // keep hierarchy of Array and Object, arr represent current is List, obj represent current is Map/Object
-type visitorUserNodeStack = [256]struct {
+type VisitorUserNodeStack struct {
 	obj   bool
 	arr   bool
 	key   string
 	state visitorUserNodeState
+}
+
+func (stk VisitorUserNodeStack) Reset() {
+	stk.obj = false
+	stk.arr = false
+	stk.key = ""
+	stk.state.lenPos = -1
+	stk.state.desc = nil
 }
 
 // record descriptor、preWrite lenPos
@@ -84,32 +103,24 @@ type visitorUserNodeState struct {
 	lenPos int
 }
 
-// init visitorUserNodeVisitorDecoder
-func (self *visitorUserNodeVisitorDecoder) Reset(p *binary.BinaryProtocol) {
-	// self.stk = visitorUserNodeStack{}
-	self.sp = 0
-	self.p = p
-}
-
-func (self *visitorUserNodeVisitorDecoder) Decode(bytes []byte, desc *proto.Descriptor) ([]byte, error) {
+func (self *VisitorUserNode) Decode(bytes []byte, desc *proto.Descriptor) ([]byte, error) {
 	// init initial visitorUserNodeState
 	self.stk[self.sp].state = visitorUserNodeState{desc: desc, lenPos: -1}
-	var str string
-	str = rt.Mem2Str(bytes)
+	str := rt.Mem2Str(bytes)
 	if err := ast.Preorder(str, self, nil); err != nil {
 		return nil, err
 	}
 	return self.result()
 }
 
-func (self *visitorUserNodeVisitorDecoder) result() ([]byte, error) {
+func (self *VisitorUserNode) result() ([]byte, error) {
 	if self.sp != 1 {
 		return nil, fmt.Errorf("incorrect sp: %d", self.sp)
 	}
 	return self.p.RawBuf(), nil
 }
 
-func (self *visitorUserNodeVisitorDecoder) incrSP() error {
+func (self *VisitorUserNode) incrSP() error {
 	self.sp++
 	if self.sp == 0 {
 		return fmt.Errorf("reached max depth: %d", len(self.stk))
@@ -117,18 +128,7 @@ func (self *visitorUserNodeVisitorDecoder) incrSP() error {
 	return nil
 }
 
-func (self *visitorUserNodeVisitorDecoder) WriteScalarWithDesc(val interface{}, desc *proto.FieldDescriptor) error {
-	var err error
-	if err = self.p.AppendTag((*desc).Number(), proto.Kind2Wire[(*desc).Kind()]); err != nil {
-		return meta.NewError(meta.ErrWrite, "append field tag failed", err)
-	}
-	if err = self.p.WriteBaseTypeWithDesc(desc, val, false, false, true); err != nil {
-		return meta.NewError(meta.ErrWrite, "write scalar string failed", err)
-	}
-	return nil
-}
-
-func (self *visitorUserNodeVisitorDecoder) OnNull() error {
+func (self *VisitorUserNode) OnNull() error {
 	// self.stk[self.sp].val = &visitorUserNull{}
 	if err := self.incrSP(); err != nil {
 		return err
@@ -136,12 +136,14 @@ func (self *visitorUserNodeVisitorDecoder) OnNull() error {
 	return self.onValueEnd()
 }
 
-func (self *visitorUserNodeVisitorDecoder) OnBool(v bool) error {
+func (self *VisitorUserNode) OnBool(v bool) error {
 	var err error
-	// self.stk[self.sp].val = &visitorUserBool{Value: v}
 	curDesc := self.stk[self.SearchPrevStateNodeIndex()].state.desc
 	convertDesc := (*curDesc).(proto.FieldDescriptor)
-	if err := self.WriteScalarWithDesc(v, &convertDesc); err != nil {
+	if err = self.p.AppendTagByDesc(convertDesc); err != nil {
+		return err
+	}
+	if err = self.p.WriteBool(v); err != nil {
 		return err
 	}
 	if err = self.incrSP(); err != nil {
@@ -150,49 +152,23 @@ func (self *visitorUserNodeVisitorDecoder) OnBool(v bool) error {
 	return self.onValueEnd()
 }
 
-// func (self *visitorUserNodeVisitorDecoder) OnString(v string) error {
-// 	var err error
-// 	var convertData interface{}
-// 	curDesc := self.stk[self.SearchPrevStateNodeIndex()].state.desc
-// 	convertDesc := (*curDesc).(proto.FieldDescriptor)
-// 	// convert string、bytesType
-// 	switch convertDesc.Kind() {
-// 	case proto.BytesKind:
-// 		convertData, err = base64.StdEncoding.DecodeString(v)
-// 		if err != nil {
-// 			return err
-// 		}
-// 	case proto.StringKind:
-// 		convertData = v
-// 	default:
-// 		return newError(meta.ErrDismatchType, "param isn't stringType", nil)
-// 	}
-// 	// writeBaseValue
-// 	if err := self.WriteScalarWithDesc(convertData, &convertDesc); err != nil {
-// 		return err
-// 	}
-// 	if err = self.incrSP(); err != nil {
-// 		return err
-// 	}
-// 	return self.onValueEnd()
-// }
-
-func (self *visitorUserNodeVisitorDecoder) OnString(v string) error {
+func (self *VisitorUserNode) OnString(v string) error {
 	var err error
 	curDesc := self.stk[self.SearchPrevStateNodeIndex()].state.desc
 	convertDesc := (*curDesc).(proto.FieldDescriptor)
 	// convert string、bytesType
 	switch convertDesc.Kind() {
 	case proto.BytesKind:
-		bytesData, err := base64.StdEncoding.DecodeString(v)
-		if err = self.p.AppendTag(convertDesc.Number(), proto.Kind2Wire[convertDesc.Kind()]); err != nil {
+		// bytesData, err := base64.StdEncoding.DecodeString(v)
+		bytesData, err := base64x.StdEncoding.DecodeString(v)
+		if err = self.p.AppendTagByDesc(convertDesc); err != nil {
 			return err
 		}
 		if err = self.p.WriteBytes(bytesData); err != nil {
 			return err
 		}
 	case proto.StringKind:
-		if err = self.p.AppendTag(convertDesc.Number(), proto.Kind2Wire[convertDesc.Kind()]); err != nil {
+		if err = self.p.AppendTagByDesc(convertDesc); err != nil {
 			return err
 		}
 		if err = self.p.WriteString(v); err != nil {
@@ -207,31 +183,52 @@ func (self *visitorUserNodeVisitorDecoder) OnString(v string) error {
 	return self.onValueEnd()
 }
 
-func (self *visitorUserNodeVisitorDecoder) OnInt64(v int64, n json.Number) error {
+func (self *VisitorUserNode) OnInt64(v int64, n json.Number) error {
 	var err error
-	var convertData interface{}
 	curDesc := self.stk[self.SearchPrevStateNodeIndex()].state.desc
 	convertDesc := (*curDesc).(proto.FieldDescriptor)
 	switch convertDesc.Kind() {
 	case proto.Int32Kind, proto.Sint32Kind, proto.Sfixed32Kind, proto.Fixed32Kind:
-		convertData = *(*int32)(unsafe.Pointer(&v))
-	case proto.Uint32Kind:
-		convertData = *(*uint32)(unsafe.Pointer(&v))
-	case proto.Uint64Kind:
-		convertData = *(*uint64)(unsafe.Pointer(&v))
-	case proto.Int64Kind:
-		convertData = v
-	default:
-		return newError(meta.ErrDismatchType, "param isn't intType", nil)
-	}
-	if convertDesc.IsList() {
-		if err = self.p.WriteBaseTypeWithDesc(&convertDesc, convertData, false, false, true); err != nil {
+		convertData := *(*int32)(unsafe.Pointer(&v))
+		if !convertDesc.IsList() {
+			if err = self.p.AppendTagByDesc(convertDesc); err != nil {
+				return err
+			}
+		}
+		if err = self.p.WriteI32(convertData); err != nil {
 			return err
 		}
-	} else {
-		if err = self.p.WriteAnyWithDesc(&convertDesc, convertData, false, false, true); err != nil {
-			return nil
+	case proto.Uint32Kind:
+		convertData := *(*uint32)(unsafe.Pointer(&v))
+		if !convertDesc.IsList() {
+			if err = self.p.AppendTagByDesc(convertDesc); err != nil {
+				return err
+			}
 		}
+		if err = self.p.WriteUint32(convertData); err != nil {
+			return err
+		}
+	case proto.Uint64Kind:
+		convertData := *(*uint64)(unsafe.Pointer(&v))
+		if !convertDesc.IsList() {
+			if err = self.p.AppendTagByDesc(convertDesc); err != nil {
+				return err
+			}
+		}
+		if err = self.p.WriteUint64(convertData); err != nil {
+			return err
+		}
+	case proto.Int64Kind:
+		if !convertDesc.IsList() {
+			if err = self.p.AppendTagByDesc(convertDesc); err != nil {
+				return err
+			}
+		}
+		if err = self.p.WriteI64(v); err != nil {
+			return err
+		}
+	default:
+		return newError(meta.ErrDismatchType, "param isn't intType", nil)
 	}
 	if err = self.incrSP(); err != nil {
 		return err
@@ -239,30 +236,38 @@ func (self *visitorUserNodeVisitorDecoder) OnInt64(v int64, n json.Number) error
 	return self.onValueEnd()
 }
 
-func (self *visitorUserNodeVisitorDecoder) OnFloat64(v float64, n json.Number) error {
+func (self *VisitorUserNode) OnFloat64(v float64, n json.Number) error {
 	var err error
-	var convertData interface{}
 	curDesc := self.stk[self.SearchPrevStateNodeIndex()].state.desc
 	convertDesc := (*curDesc).(proto.FieldDescriptor)
 	switch convertDesc.Kind() {
 	case proto.FloatKind:
-		convertData = *(*float32)(unsafe.Pointer(&v))
+		convertData := *(*float32)(unsafe.Pointer(&v))
+		if err = self.p.AppendTagByDesc(convertDesc); err != nil {
+			return err
+		}
+		if err = self.p.WriteFloat(convertData); err != nil {
+			return err
+		}
 	case proto.DoubleKind:
-		convertData = *(*float64)(unsafe.Pointer(&v))
+		convertData := *(*float64)(unsafe.Pointer(&v))
+		if err = self.p.AppendTagByDesc(convertDesc); err != nil {
+			return err
+		}
+		if err = self.p.WriteDouble(convertData); err != nil {
+			return err
+		}
 	default:
 		return newError(meta.ErrDismatchType, "param isn't floatType", nil)
 	}
 	// self.stk[self.sp].val = &visitorUserFloat64{Value: v}
-	if err = self.p.WriteAnyWithDesc(&convertDesc, convertData, false, false, true); err != nil {
-		return nil
-	}
 	if err = self.incrSP(); err != nil {
 		return err
 	}
 	return self.onValueEnd()
 }
 
-func (self *visitorUserNodeVisitorDecoder) OnObjectBegin(capacity int) error {
+func (self *VisitorUserNode) OnObjectBegin(capacity int) error {
 	self.stk[self.sp].obj = true
 	lastDescIdx := self.SearchPrevStateNodeIndex()
 	if lastDescIdx > 0 {
@@ -288,7 +293,7 @@ func (self *visitorUserNodeVisitorDecoder) OnObjectBegin(capacity int) error {
 	return self.incrSP()
 }
 
-func (self *visitorUserNodeVisitorDecoder) OnObjectKey(key string) error {
+func (self *VisitorUserNode) OnObjectKey(key string) error {
 	self.stk[self.sp].key = key
 	var rootDesc proto.MessageDescriptor
 	var curDesc proto.FieldDescriptor
@@ -309,7 +314,7 @@ func (self *visitorUserNodeVisitorDecoder) OnObjectKey(key string) error {
 		// complex structure, get inner fieldDesc by jsonname
 	} else if curDesc != nil && curDesc.Message() != nil {
 		if curDesc.IsList() && !curDesc.IsPacked() {
-			// case Unpacked List(inner is Message)
+			// case Unpacked List
 			if fieldDesc := curDesc.Message().Fields().ByJSONName(key); fieldDesc != nil {
 				curDesc = fieldDesc
 			}
@@ -374,7 +379,7 @@ func (self *visitorUserNodeVisitorDecoder) OnObjectKey(key string) error {
 }
 
 // search the last StateNode which desc isn't empty
-func (self *visitorUserNodeVisitorDecoder) SearchPrevStateNodeIndex() int {
+func (self *VisitorUserNode) SearchPrevStateNodeIndex() int {
 	var i int
 	for i = int(self.sp); i >= 0; i-- {
 		if i == 0 || self.stk[i].state.desc != nil {
@@ -384,7 +389,7 @@ func (self *visitorUserNodeVisitorDecoder) SearchPrevStateNodeIndex() int {
 	return i
 }
 
-func (self *visitorUserNodeVisitorDecoder) OnObjectEnd() error {
+func (self *VisitorUserNode) OnObjectEnd() error {
 	self.stk[self.sp-1].obj = false
 
 	// fill prefix_length when MessageEnd, may have problem with rootDesc
@@ -400,12 +405,12 @@ func (self *visitorUserNodeVisitorDecoder) OnObjectEnd() error {
 	return self.onValueEnd()
 }
 
-func (self *visitorUserNodeVisitorDecoder) OnArrayBegin(capacity int) error {
+func (self *VisitorUserNode) OnArrayBegin(capacity int) error {
 	self.stk[self.sp].arr = true
 	return self.incrSP()
 }
 
-func (self *visitorUserNodeVisitorDecoder) OnArrayEnd() error {
+func (self *VisitorUserNode) OnArrayEnd() error {
 	self.stk[self.sp-1].arr = false
 
 	// case arrayEnd, fill arrayPrefixLen
@@ -422,7 +427,7 @@ func (self *visitorUserNodeVisitorDecoder) OnArrayEnd() error {
 	return self.onValueEnd()
 }
 
-func (self *visitorUserNodeVisitorDecoder) onValueEnd() error {
+func (self *VisitorUserNode) onValueEnd() error {
 	if self.sp == 1 {
 		return nil
 	}
