@@ -10,6 +10,7 @@ require (
 	github.com/cloudwego/kitex v0.6.1
 	github.com/cloudwego/netpoll v0.5.0 // indirect
 	github.com/cloudwego/thriftgo v0.2.11
+	github.com/cristalhq/base64 v0.1.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/fatih/structtag v1.2.0
 	github.com/iancoleman/strcase v0.2.0
