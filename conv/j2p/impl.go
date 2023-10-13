@@ -22,26 +22,25 @@ func (self *BinaryConv) do(ctx context.Context, src []byte, desc *proto.MessageD
 		// empty body
 	}
 
-	res, err := self.Unmarshal(src, desc)
-	if err != nil {
+	if err := self.Unmarshal(src, buf, desc); err != nil {
 		return meta.NewError(meta.ErrConvert, fmt.Sprintf("json convert to protobuf failed, MessageDescriptor: %v", (*desc).Name()), err)
 	}
-	*buf = res
 	return nil
 }
 
-func (self *BinaryConv) Unmarshal(src []byte, desc *proto.MessageDescriptor) ([]byte, error) {
+func (self *BinaryConv) Unmarshal(src []byte, out *[]byte, desc *proto.MessageDescriptor) error {
 	// use sonic to decode json bytes, get visitorUserNode
 	vu := NewVisitorUserNodeBuffer()
 	rootDesc, ok := (*desc).(proto.Descriptor)
 	if !ok {
-		return nil, newError(meta.ErrDismatchType, "descriptor match failed", nil)
+		return newError(meta.ErrDismatchType, "descriptor match failed", nil)
 	}
 	// use Visitor onxxx() to decode json2pb
-	res, err := vu.Decode(src, &rootDesc)
+	data, err := vu.Decode(src, &rootDesc)
 	vu.Recycle()
 	if err != nil {
-		return nil, newError(meta.ErrConvert, "sonic decode json bytes failed", err)
+		return newError(meta.ErrConvert, "sonic decode json bytes failed", err)
 	}
-	return res, nil
+	*out = data
+	return nil
 }
