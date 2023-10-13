@@ -145,8 +145,8 @@ func (p *BinaryProtocol) AppendTag(num proto.Number, typ proto.WireType) error {
 }
 
 // Append Tag With FieldDescriptor
-func (p *BinaryProtocol) AppendTagByDesc(desc proto.FieldDescriptor) error {
-	return p.AppendTag(desc.Number(), proto.Kind2Wire[desc.Kind()])
+func (p *BinaryProtocol) AppendTagByDesc(desc *proto.FieldDescriptor) error {
+	return p.AppendTag((*desc).Number(), proto.Kind2Wire[(*desc).Kind()])
 }
 
 // ConsumeTag parses b as a varint-encoded tag, reporting its length.
