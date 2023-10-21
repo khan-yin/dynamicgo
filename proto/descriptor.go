@@ -28,7 +28,7 @@ type ExtensionDescriptor = protoreflect.ExtensionDescriptor
 
 type ExtensionTypeDescriptor = protoreflect.ExtensionTypeDescriptor
 
-
+type FieldDescriptors = protoreflect.FieldDescriptors
 type TypeDescriptor struct {
 	typ Type
 	name string
