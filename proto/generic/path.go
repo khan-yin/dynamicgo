@@ -314,7 +314,7 @@ func (self *PathNode) scanChildren(p *binary.BinaryProtocol, recurse bool, opts 
 		fields := messageDesc.Fields()
 		start := p.Read
 		for p.Read < start + messageLen{
-			fieldNumber, wireType, _, tagErr := p.ConsumeTag()
+			fieldNumber, wireType, tagLen, tagErr := p.ConsumeTag()
 			if tagErr != nil {
 				return wrapError(meta.ErrRead, "PathNode.scanChildren: invalid field tag.", tagErr)
 			}
@@ -332,7 +332,7 @@ func (self *PathNode) scanChildren(p *binary.BinaryProtocol, recurse bool, opts 
 			
 			field := fields.ByNumber(fieldNumber)
 			if field != nil {
-				v, err = self.handleChild(&next, &l, &c, p, recurse, opts, &field)
+				v, err = self.handleChild(&next, &l, &c, p, recurse, opts, &field, tagLen)
 			} else {
 				// store unknown field without recurse subnodes
 				v, err = self.handleUnknownChild(&next, &l, &c, p, recurse, opts, wireType)
@@ -420,11 +420,13 @@ func (self *PathNode) scanChildren(p *binary.BinaryProtocol, recurse bool, opts 
 				return wrapError(meta.ErrRead, "PathNode.scanChildren: can not read map key.", keyErr)
 			}
 		
-			if _, _, _, valueTagErr := p.ConsumeTag(); valueTagErr != nil {
+			_, _, valueLen, valueTagErr := p.ConsumeTag() // consume value tag
+
+			if valueTagErr != nil {
 				return wrapError(meta.ErrRead, "PathNode.scanChildren: Consume map value tag failed", nil)
 			}
 		
-			v, err = self.handleChild(&next, &l, &c, p, recurse, opts, &valueDesc)
+			v, err = self.handleChild(&next, &l, &c, p, recurse, opts, &valueDesc, valueLen)
 			if err != nil {
 				return err
 			}
@@ -458,7 +460,7 @@ func (self *PathNode) scanChildren(p *binary.BinaryProtocol, recurse bool, opts 
 	return nil
 }
 
-func (self *PathNode) handleChild(in *[]PathNode, lp *int, cp *int, p *binary.BinaryProtocol, recurse bool, opts *Options, desc *proto.FieldDescriptor) (*PathNode, error) {
+func (self *PathNode) handleChild(in *[]PathNode, lp *int, cp *int, p *binary.BinaryProtocol, recurse bool, opts *Options, desc *proto.FieldDescriptor, tagLen int) (*PathNode, error) {
 	var con = *in
 	var l = *lp
 	guardPathNodeSlice(&con, l) // extend cap of con
@@ -489,7 +491,7 @@ func (self *PathNode) handleChild(in *[]PathNode, lp *int, cp *int, p *binary.Bi
 			et = proto.FromProtoKindToType((*desc).Kind(),false,false)
 			skipType = proto.BytesType
 		}
-
+		// notice: when packed LIST, the size is not calculated in order to fast read all elements
 		if e := p.Skip(skipType, opts.UseNativeSkip); e != nil {
 			return nil, wrapError(meta.ErrRead, "skip field failed", e)
 		}
@@ -497,13 +499,13 @@ func (self *PathNode) handleChild(in *[]PathNode, lp *int, cp *int, p *binary.Bi
 
 		// unpacked LIST & MAP
 		if (tt == proto.LIST && IsPacked == false) || tt == proto.MAP {
+			size += 1 // the first element is skipped above
 			fieldNumber := (*desc).Number()
-			size += 1
 			if tt == proto.MAP {
 				kt = proto.FromProtoKindToType((*desc).MapKey().Kind(),false,false)
 				et = proto.FromProtoKindToType((*desc).MapValue().Kind(),false,false)
 			}
-			
+			// skip remain elements with the same field number
 			for p.Read < len(p.Buf) {
 				number, wt, tagLen, err := p.ConsumeTagWithoutMove()
 				if err != nil {
@@ -519,7 +521,17 @@ func (self *PathNode) handleChild(in *[]PathNode, lp *int, cp *int, p *binary.Bi
 				size += 1
 			}
 		}
-		v.Node = self.sliceComplex(start, p.Read, tt, kt, et, size)
+
+		nodeStart := start
+		if tt == proto.LIST || tt == proto.MAP {
+			// when list/map we need to contain the tag
+			nodeStart = start - tagLen
+			if start < 0 {
+				return nil, wrapError(meta.ErrRead, "invalid start", nil)
+			}
+		}
+		
+		v.Node = self.sliceComplex(nodeStart, p.Read, tt, kt, et, size)
 		
 	}
 
