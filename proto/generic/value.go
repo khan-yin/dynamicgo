@@ -269,7 +269,7 @@ func searchStrKey(p *binary.BinaryProtocol, key string, keyType proto.Type, mapF
 }
 
 func (self Value) GetByPath(pathes ...Path) Value {
-	value, _ := self.getByPath()
+	value, _ := self.getByPath(pathes...)
 	return value
 }
 
@@ -500,7 +500,7 @@ func (self *Value) SetByPath(sub Value, path ...Path) (exist bool, err error) {
 
 	originLen := len(self.raw())
 	err = self.replace(v.Node, sub.Node)
-	isPacked := path[l-1].t == PathIndex && sub.Node.t != proto.MESSAGE && sub.Node.t != proto.STRING
+	isPacked := path[l-1].t == PathIndex && sub.Node.t.IsInt()
 	self.UpdateByteLen(originLen, address, isPacked, path...)
 	return
 }
