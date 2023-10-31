@@ -273,6 +273,10 @@ func (self Value) GetByPath(pathes ...Path) Value {
 	return value
 }
 
+func (self Value) GetByPathWithAddress(pathes ...Path) (Value, []int) {
+	return self.getByPath(pathes...)
+}
+
 // inner use
 func (self Value) getByPath(pathes ...Path) (Value, []int) {
 	address := make([]int, len(pathes))

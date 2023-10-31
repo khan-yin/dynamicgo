@@ -906,7 +906,7 @@ func TestSetMany(t *testing.T) {
 		exp22 := int32(math.MaxInt32)
 		n21 := NewNodeInt32(exp21)
 		n22 := NewNodeInt32(exp22)
-		vv, listInt2root := v.getByPath(PathExampleListInt32...)
+		vv, listInt2root := v.GetByPathWithAddress(PathExampleListInt32...)
 		l2, err := vv.Len()
 		require.NoError(t, err)
 		// the last value of path2root and address2root is only a flag not using real value
@@ -936,7 +936,7 @@ func TestSetMany(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, l2+2, ll2)
 
-		vx, base2root := v.getByPath(NewPathFieldName("InnerBase2"), NewPathFieldName("ListBase"))
+		vx, base2root := v.GetByPathWithAddress(NewPathFieldName("InnerBase2"), NewPathFieldName("ListBase"))
 		vv = vx
 		m1, e := vv.Len()
 		require.Nil(t, e)
@@ -999,7 +999,7 @@ func TestSetMany(t *testing.T) {
 		require.Equal(t, exp.Msg, exp1)
 		require.Equal(t, exp.Subfix, exp2)
 
-		vx, base2root := vRoot.getByPath(NewPathFieldName("InnerBase2"), NewPathFieldName("Base"))
+		vx, base2root := vRoot.GetByPathWithAddress(NewPathFieldName("InnerBase2"), NewPathFieldName("Base"))
 		vv := vx
 		// the last value of path2root and address2root is only a flag not using real value
 		path2root := []Path{NewPathFieldName("InnerBase2"), NewPathFieldName("Base"), NewPathFieldId(1024)}
@@ -1033,7 +1033,7 @@ func TestSetMany(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, vx.raw(), vv.raw())
 
-		inner, inner2root := vRoot.getByPath(NewPathFieldName("InnerBase2"))
+		inner, inner2root := vRoot.GetByPathWithAddress(NewPathFieldName("InnerBase2"))
 		p = binary.NewBinaryProtocolBuffer()
 		e1 := false
 		p.WriteBool(e1)
