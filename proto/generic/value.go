@@ -35,11 +35,11 @@ var (
 	}
 )
 
-func NewBytesPool() []byte {
+func NewBytesFromPool() []byte {
 	return bytesPool.Get().([]byte)
 }
 
-func FreeBytesPool(b []byte) {
+func FreeBytesToPool(b []byte) {
 	b = b[:0]
 	bytesPool.Put(b)
 }
@@ -518,7 +518,7 @@ func (self *Value) UpdateByteLen(originLen int, address []int, isPacked bool, pa
 		pathType := path[i].t
 		addressPtr := address[i]
 		if previousType == proto.MESSAGE || (previousType == proto.LIST && isPacked) {
-			newBytes := NewBytesPool()
+			newBytes := NewBytesFromPool()
 			// tag
 			buf := rt.BytesFrom(rt.AddPtr(self.v, uintptr(addressPtr)), self.l-addressPtr, self.l-addressPtr)
 			_, tagOffset := protowire.ConsumeVarint(buf)
@@ -563,7 +563,7 @@ func (self *Value) UpdateByteLen(originLen int, address []int, isPacked bool, pa
 				isPacked = false
 			}
 			diffLen += subLen
-			FreeBytesPool(newBytes)
+			FreeBytesToPool(newBytes)
 		}
 
 		if pathType == PathStrKey || pathType == PathIntKey {
