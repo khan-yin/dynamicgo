@@ -2,6 +2,10 @@ package testdata
 
 import (
 	"context"
+	"fmt"
+	"math"
+	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/cloudwego/dynamicgo/internal/util_test"
@@ -1326,4 +1330,62 @@ func BenchmarkProtoGetPartial_ReuseMemory(b *testing.B) {
 	})
 }
 
-func BenchmarkProto
+const (
+	factor          = 0.1
+	defaultListSize = 512
+)
+
+func sizeNestingField(obj *baseline.Nesting, id int) int {
+	value := reflect.ValueOf(obj)
+	name := fmt.Sprintf("%s%s", "SizeField", strconv.FormatInt(int64(id), 10))
+	method := value.MethodByName(name)
+	argument := []reflect.Value{}
+	ans := method.Call(argument)
+	return int(ans[0].Int())
+}
+
+func encNestingField(obj *baseline.Nesting, id int, b []byte) error {
+	value := reflect.ValueOf(obj)
+	name := fmt.Sprintf("%s%s", "FastWriteField", strconv.FormatInt(int64(id), 10))
+	method := value.MethodByName(name)
+	argument := []reflect.Value{reflect.ValueOf(b)}
+	method.Call(argument)
+	return nil
+}
+
+func BenchmarkProtoRation(b *testing.B) {
+	b.Run("ration", func(b *testing.B) {
+		desc := getPbNestingDesc()
+		fieldNums := (*desc).Fields().Len()
+		obj := getPbNestingValue()
+		data := make([]byte, obj.Size())
+		ret := obj.FastWrite(data)
+		if ret != len(data) {
+			b.Fatal(ret)
+		}
+
+		v := generic.NewRootValue(desc, data)
+		for id := 1; id <= int(math.Ceil(float64(fieldNums)*factor)); id++ {
+			vv := v.GetByPath(generic.NewPathFieldId(proto.Number(id)))
+			require.Nil(b, vv.Check())
+			size := sizeNestingField(obj, id)
+			data := make([]byte, size)
+			if err := encNestingField(obj, id, data); err != nil {
+				b.Fatal("encNestingField failed, fieldId: {}", id)
+			}
+			fmt.Println(vv.String())
+			fmt.Println(string(data))
+			require.Equal(b, data, vv.Raw())
+		}
+		b.ResetTimer()
+		b.Run("go", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				_ = v.GetByPath(generic.NewPathFieldId(6))
+			}
+		})
+	})
+}
+
+func BenchmarkDynamicpbRation(b *testing.B) {
+
+}
