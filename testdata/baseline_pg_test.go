@@ -325,11 +325,10 @@ func BenchmarkProtoSetMany(b *testing.B) {
 		path2root := make([]generic.Path, 0)
 		require.Nil(b, v.GetMany(ps, &opts))
 		require.Nil(b, v.SetMany(ps, &opts, &v, adress2root, path2root...))
-
+		opts.UseNativeSkip = false
+		b.SetBytes(int64(len(data)))
+		b.ResetTimer()
 		b.Run("go", func(b *testing.B) {
-			opts.UseNativeSkip = false
-			b.SetBytes(int64(len(data)))
-			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_ = v.SetMany(ps, &opts, &v, adress2root, path2root...)
 			}
@@ -357,11 +356,10 @@ func BenchmarkProtoSetMany(b *testing.B) {
 		path2root := make([]generic.Path, 0)
 		require.Nil(b, v.GetMany(ps, &opts))
 		require.Nil(b, v.SetMany(ps, &opts, &v, adress2root, path2root...))
-
+		opts.UseNativeSkip = false
+		b.SetBytes(int64(len(data)))
+		b.ResetTimer()
 		b.Run("go", func(b *testing.B) {
-			opts.UseNativeSkip = false
-			b.SetBytes(int64(len(data)))
-			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_ = v.SetMany(ps, &opts, &v, adress2root, path2root...)
 			}
@@ -1485,6 +1483,7 @@ func BenchmarkDynamicpbRationGet(b *testing.B) {
 }
 
 
+
 // func GetBytes(p *binary.BinaryProtocol, obj *baseline.Nesting, id int, desc *proto.FieldDescriptor) (err error) {
 // 	switch id {
 // 	case 1:
@@ -1694,21 +1693,21 @@ func BenchmarkProtoRationSet(b *testing.B) {
 					}
 
 					newValue := generic.NewValue(&field, p.Buf)
-					// can not set when set complex value
-					if field.IsList() {
-						et := proto.FromProtoKindToType(field.Kind(), false, false)
-						newValue.SetElemType(et)
-					} else if field.IsMap() {
-						kt := proto.FromProtoKindToType(field.MapKey().Kind(), false, false)
-						newValue.SetKeyType(kt)
-						et := proto.FromProtoKindToType(field.MapValue().Kind(), false, false)
-						newValue.SetElemType(et)
-					}
+					// can not set when set complex value if use GetMany
+					// if field.IsList() {
+					// 	et := proto.FromProtoKindToType(field.Kind(), false, false)
+					// 	newValue.SetElemType(et)
+					// } else if field.IsMap() {
+					// 	kt := proto.FromProtoKindToType(field.MapKey().Kind(), false, false)
+					// 	newValue.SetKeyType(kt)
+					// 	et := proto.FromProtoKindToType(field.MapValue().Kind(), false, false)
+					// 	newValue.SetElemType(et)
+					// }
 					_, err = newRoot.SetByPath(newValue, generic.NewPathFieldId(proto.Number(id)))
 					p.Recycle()
-					ps = append(ps, generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id)), Node: newValue.Node})
+					ps = append(ps, generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))})
 				}
-				// _ = newRoot.GetMany(ps,opt)
+				_ = newRoot.GetMany(ps,opt)
 				n := generic.PathNode{
 					Path: generic.NewPathFieldId(1),
 					Node: newRoot.Node,
@@ -1719,6 +1718,78 @@ func BenchmarkProtoRationSet(b *testing.B) {
 			}
 		})
 
+	})
+}
+
+func BenchmarkProtoRationSetMany(b *testing.B) {
+	b.Run("ration", func(b *testing.B) {
+		desc := getPbNestingDesc()
+		fieldNums := (*desc).Fields().Len()
+		obj := getPbNestingValue()
+		data := make([]byte, obj.Size())
+		ret := obj.FastWrite(data)
+		if ret != len(data) {
+			b.Fatal(ret)
+		}
+		testNums := int(math.Ceil(float64(fieldNums) * factor))
+		objRoot := generic.NewRootValue(desc, data)
+		newRoot := generic.NewRootValue(desc, nil)
+		ps := make([]generic.PathNode, 0)
+		opts := generic.Options{}
+		mObj := make([]byte, 0)
+		value := reflect.ValueOf(obj)
+
+		
+		for id := 1; id <= testNums; id++ {
+			if err := collectMarshalData(id, value, &mObj); err != nil {
+				b.Fatal("collect MarshalData failed")
+			}
+			ps = append(ps, generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))})
+		}
+
+		err := objRoot.GetMany(ps, &opts)
+		if err != nil {
+			b.Fatal("getMany failed")
+		}
+		adress2root := make([]int, 0)
+		path2root := make([]generic.Path, 0)
+		err = newRoot.SetMany(ps, &opts, &newRoot, adress2root, path2root...)
+		n := generic.PathNode{
+			Path: generic.NewPathFieldId(1),
+			Node: newRoot.Node,
+			Next: ps,
+		}
+		mProto, err := n.Marshal(&generic.Options{})
+		if err != nil {
+			b.Fatal("marshal PathNode failed")
+		}
+		require.Equal(b, len(mProto), len(mObj))
+
+		b.SetBytes(int64(len(data)))
+		b.ResetTimer()
+		b.Run("go", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				objRoot := generic.NewRootValue(desc, data)
+				newRoot := generic.NewRootValue(desc, nil)
+				for id := 1; id <= testNums; id++ {
+					if err := collectMarshalData(id, value, &mObj); err != nil {
+						b.Fatal("collect MarshalData failed")
+					}
+					ps = append(ps, generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))})
+				}
+				_ = objRoot.GetMany(ps, &opts)
+				adress2root := make([]int, 0)
+				path2root := make([]generic.Path, 0)
+				newRoot.SetMany(ps, &opts, &newRoot, adress2root, path2root...)
+				n := generic.PathNode{
+					Path: generic.NewPathFieldId(1),
+					Node: newRoot.Node,
+					Next: ps,
+				}
+				_, _ = n.Marshal(&generic.Options{})
+				
+			}
+		})
 	})
 }
 
