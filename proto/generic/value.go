@@ -51,6 +51,7 @@ func NewRootValue(desc *proto.MessageDescriptor, src []byte) Value {
 	}
 }
 
+// only for basic Node
 func NewValue(desc *proto.FieldDescriptor, src []byte) Value {
 	typ := proto.FromProtoKindToType((*desc).Kind(), (*desc).IsList(), (*desc).IsMap())
 	return Value{
@@ -58,6 +59,29 @@ func NewValue(desc *proto.FieldDescriptor, src []byte) Value {
 		Desc: desc,
 	}
 }
+
+// only for LIST/MAP parent Node
+func NewComplexValue(desc *proto.FieldDescriptor, src []byte) Value {
+	field := *desc
+	t := proto.FromProtoKindToType(field.Kind(),field.IsList(),field.IsMap())
+	et := proto.UNKNOWN
+	kt := proto.UNKNOWN
+	if t == proto.LIST {
+		et = proto.FromProtoKindToType(field.Kind(),false,false)
+	} else if t == proto.MAP {
+		t = proto.MAP
+		et = proto.FromProtoKindToType(field.MapKey().Kind(),false,false)
+		kt = proto.FromProtoKindToType(field.MapValue().Kind(),false,false)
+	} else {
+		panic("invalid type")
+	}
+
+	return Value{
+		Node: NewComplexNode(t, et, kt, src),
+		Desc: desc,
+	}
+}
+
 
 // NewValueFromNode copy both Node and TypeDescriptor from another Value.
 func (self Value) Fork() Value {
