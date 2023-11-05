@@ -1333,8 +1333,8 @@ func BenchmarkProtoGetPartial_ReuseMemory(b *testing.B) {
 }
 
 const (
-	factor          = 0.2
-	defaultListSize = 512
+	factor         = 0.6
+	defaultBufSize = 512
 )
 
 func sizeNestingField(obj *baseline.Nesting, id int) int {
@@ -1364,7 +1364,31 @@ func parseBytes(key interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func BenchmarkProtoRation(b *testing.B) {
+func collectMarshalData(id int, obj *baseline.Nesting, b *[]byte) error {
+	size := sizeNestingField(obj, id)
+	data := make([]byte, size)
+	if err := encNestingField(obj, id, data); err != nil {
+		return err
+	}
+	*b = append(*b, data...)
+	return nil
+}
+
+func buildBinaryProtocolByFieldId(id int, p *binary.BinaryProtocol, obj *baseline.Nesting, desc *proto.FieldDescriptor) error {
+	var err error
+	size := sizeNestingField(obj, id)
+	data := make([]byte, size)
+	if err = encNestingField(obj, id, data); err != nil {
+		return err
+	}
+	if !(*desc).IsList() && !(*desc).IsMap() {
+		data = data[1:]
+	}
+	p.Buf = data
+	return nil
+}
+
+func BenchmarkProtoRationGet(b *testing.B) {
 	b.Run("ration", func(b *testing.B) {
 		desc := getPbNestingDesc()
 		fieldNums := (*desc).Fields().Len()
@@ -1416,7 +1440,7 @@ func BenchmarkProtoRation(b *testing.B) {
 	})
 }
 
-func BenchmarkDynamicpbRation(b *testing.B) {
+func BenchmarkDynamicpbRationGet(b *testing.B) {
 	b.Run("ration", func(b *testing.B) {
 		desc := getPbNestingDesc()
 		fieldNums := (*desc).Fields().Len()
@@ -1458,5 +1482,116 @@ func BenchmarkDynamicpbRation(b *testing.B) {
 				}
 			}
 		})
+	})
+}
+
+func BenchmarkProtoRationSet(b *testing.B) {
+	b.Run("ration", func(b *testing.B) {
+		desc := getPbNestingDesc()
+		p := binary.NewBinaryProtocolBuffer()
+		fieldNums := (*desc).Fields().Len()
+		obj := getPbNestingValue()
+		data := make([]byte, obj.Size())
+		ret := obj.FastWrite(data)
+		if ret != len(data) {
+			b.Fatal(ret)
+		}
+
+		v := generic.NewRootValue(desc, data)
+		opts := generic.Options{}
+		ps := make([]generic.PathNode, 0)
+		testNums := int(math.Ceil(float64(fieldNums) * factor))
+		mObj := make([]byte, 0)
+		for id := 1; id <= testNums; id++ {
+			fieldDesc := (*desc).Fields().ByNumber(proto.Number(id))
+			if err := collectMarshalData(id, obj, &mObj); err != nil {
+				b.Fatal("collect MarshalData failed")
+			}
+			if err := buildBinaryProtocolByFieldId(id, p, obj, &fieldDesc); err != nil {
+				b.Fatal("build BinaryProtocolByFieldId failed")
+			}
+			field := (*desc).Fields().ByNumber(proto.Number(id))
+			n := generic.NewValue(&field, p.Buf)
+			_, err := v.SetByPath(n, generic.NewPathFieldId(proto.Number(id)))
+			require.Nil(b, err)
+			nn := v.GetByPath(generic.NewPathFieldId(proto.Number(id)))
+			nndata := nn.Raw()
+			ndata := n.Raw()
+			if nn.Type() != proto.MAP {
+				require.Equal(b, nndata, ndata)
+			} else {
+				require.Equal(b, len(nndata), len(ndata))
+			}
+			pnode := generic.PathNode{
+				Path: generic.NewPathFieldId(proto.FieldNumber(id)),
+				Node: n.Node,
+			}
+			ps = append(ps, pnode)
+		}
+		n := generic.PathNode{
+			Path: generic.NewPathFieldId(1),
+			Node: v.Node,
+			Next: ps,
+		}
+		mProto, err := n.Marshal(&opts)
+		if err != nil {
+			b.Fatal("marshal PathNode failed")
+		}
+		require.Equal(b, len(mProto), len(mObj))
+		b.SetBytes(int64(len(data)))
+		b.ResetTimer()
+		b.Run("go", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				opts := generic.Options{}
+				v := generic.NewRootValue(desc, data)
+				ps := make([]generic.PathNode, 0)
+				for id := 1; id <= testNums; id++ {
+					p := binary.NewBinaryProtocolBuffer()
+					fieldDesc := (*desc).Fields().ByNumber(proto.Number(id))
+					_ = buildBinaryProtocolByFieldId(id, p, obj, &fieldDesc)
+					field := (*desc).Fields().ByNumber(proto.Number(id))
+					n := generic.NewValue(&field, p.Buf)
+					_, _ = v.SetByPath(n, generic.NewPathFieldId(proto.Number(id)))
+					pnode := generic.PathNode{
+						Path: generic.NewPathFieldId(proto.FieldNumber(id)),
+						Node: n.Node,
+					}
+					ps = append(ps, pnode)
+				}
+				n := generic.PathNode{
+					Path: generic.NewPathFieldId(1),
+					Node: v.Node,
+					Next: ps,
+				}
+				_, _ = n.Marshal(&opts)
+			}
+		})
+	})
+}
+
+func BenchmarkDynamicpbRationSet(b *testing.B) {
+	b.Run("ration", func(b *testing.B) {
+		desc := getPbNestingDesc()
+		fieldNums := (*desc).Fields().Len()
+		obj := getPbNestingValue()
+		data := make([]byte, obj.Size())
+		ret := obj.FastWrite(data)
+		if ret != len(data) {
+			b.Fatal(ret)
+		}
+
+		testNums := int(math.Ceil(float64(fieldNums) * factor))
+
+		message := dynamicpb.NewMessage(*desc)
+		for id := 1; id <= testNums; id++ {
+			targetDesc := (*desc).Fields().ByNumber(proto.Number(id))
+			fieldValue := obj.ProtoReflect().Get(targetDesc)
+			message.Set(targetDesc, fieldValue)
+		}
+		out, err := goproto.Marshal(message)
+		if err != nil {
+			b.Fatal("Dynamicpb marshal failed")
+		}
+		fmt.Println(len(out))
 	})
 }
