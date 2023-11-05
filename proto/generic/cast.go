@@ -336,6 +336,8 @@ func (self Value) Interface(opts *Options) (interface{}, error) {
 		return self.uint()
 	case proto.DOUBLE:
 		return self.float64()
+	case proto.BYTE:
+		return self.binary()
 	case proto.STRING:
 		if opts.CastStringAsBinary {
 			return self.binary()
