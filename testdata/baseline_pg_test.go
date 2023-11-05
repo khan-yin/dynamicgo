@@ -1734,26 +1734,32 @@ func BenchmarkProtoRationSetMany(b *testing.B) {
 		testNums := int(math.Ceil(float64(fieldNums) * factor))
 		objRoot := generic.NewRootValue(desc, data)
 		newRoot := generic.NewRootValue(desc, nil)
-		ps := make([]generic.PathNode, 0)
+		ps := make([]generic.PathNode, testNums)
 		opts := generic.Options{}
 		mObj := make([]byte, 0)
 		value := reflect.ValueOf(obj)
-
 		
 		for id := 1; id <= testNums; id++ {
 			if err := collectMarshalData(id, value, &mObj); err != nil {
 				b.Fatal("collect MarshalData failed")
 			}
-			ps = append(ps, generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))})
+			ps[id-1] = generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))}
 		}
-
 		err := objRoot.GetMany(ps, &opts)
 		if err != nil {
 			b.Fatal("getMany failed")
 		}
-		adress2root := make([]int, 0)
-		path2root := make([]generic.Path, 0)
+		adress2root := []int{}
+		path2root := []generic.Path{}
 		err = newRoot.SetMany(ps, &opts, &newRoot, adress2root, path2root...)
+		if err != nil {
+			b.Fatal("getMany failed")
+		}
+		err = newRoot.GetMany(ps, &generic.Options{ClearDirtyValues: true})
+		if err != nil {
+			b.Fatal("getMany failed")
+		}
+
 		n := generic.PathNode{
 			Path: generic.NewPathFieldId(1),
 			Node: newRoot.Node,
@@ -1764,23 +1770,22 @@ func BenchmarkProtoRationSetMany(b *testing.B) {
 			b.Fatal("marshal PathNode failed")
 		}
 		require.Equal(b, len(mProto), len(mObj))
-
+		fmt.Println(len(mProto))
 		b.SetBytes(int64(len(data)))
 		b.ResetTimer()
 		b.Run("go", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				objRoot := generic.NewRootValue(desc, data)
 				newRoot := generic.NewRootValue(desc, nil)
+				ps := make([]generic.PathNode, testNums)
 				for id := 1; id <= testNums; id++ {
-					if err := collectMarshalData(id, value, &mObj); err != nil {
-						b.Fatal("collect MarshalData failed")
-					}
-					ps = append(ps, generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))})
+					ps[id-1] = generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))}
 				}
 				_ = objRoot.GetMany(ps, &opts)
 				adress2root := make([]int, 0)
 				path2root := make([]generic.Path, 0)
 				newRoot.SetMany(ps, &opts, &newRoot, adress2root, path2root...)
+				_ = newRoot.GetMany(ps, &generic.Options{ClearDirtyValues: true})
 				n := generic.PathNode{
 					Path: generic.NewPathFieldId(1),
 					Node: newRoot.Node,
