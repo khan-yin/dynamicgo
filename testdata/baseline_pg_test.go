@@ -1331,7 +1331,7 @@ func BenchmarkProtoGetPartial_ReuseMemory(b *testing.B) {
 }
 
 const (
-	factor         = 1.0
+	factor         = 1.0 // change set/get field ratio
 	defaultBufSize = 512
 )
 
