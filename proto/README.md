@@ -40,6 +40,7 @@ import "github.com/cloudwego/dynamicgo/proto"
     - [func (Type) IsComplex](#func-type-iscomplex)
     - [func (Type) IsInt](#func-type-isint)
     - [func (Type) IsUint](#func-type-isuint)
+    - [func (Type) NeedVarint](#func-type-needvarint)
     - [func (Type) String](#func-type-string)
     - [func (Type) TypeToKind](#func-type-typetokind)
     - [func (Type) Valid](#func-type-valid)
@@ -93,7 +94,7 @@ type EnumDescriptor = protoreflect.EnumDescriptor
 ```
 
 <a name="EnumNumber"></a>
-## type [EnumNumber](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L212>)
+## type [EnumNumber](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L217>)
 
 
 
@@ -147,7 +148,7 @@ type FieldDescriptors = protoreflect.FieldDescriptors
 ```
 
 <a name="FieldName"></a>
-## type [FieldName](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L224>)
+## type [FieldName](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L229>)
 
 define FieldName = protoreflect.Name (string) used in Descriptor.Name()
 
@@ -156,7 +157,7 @@ type FieldName = protoreflect.Name
 ```
 
 <a name="FieldNumber"></a>
-## type [FieldNumber](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L211>)
+## type [FieldNumber](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L216>)
 
 
 
@@ -210,7 +211,7 @@ func GetFnDescFromFile(filePath, fnName string, opts Options) *MethodDescriptor
 GetFnDescFromFile get a fucntion descriptor from idl path (relative to your git root) and the function name
 
 <a name="Number"></a>
-## type [Number](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L209>)
+## type [Number](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L214>)
 
 define Number = protowire.Number (int32)
 
@@ -240,7 +241,7 @@ type OneofDescriptor = protoreflect.OneofDescriptor
 ```
 
 <a name="Options"></a>
-## type [Options](<https://github.com/khan-yin/dynamicgo/blob/main/proto/idl.go#L23-L26>)
+## type [Options](<https://github.com/khan-yin/dynamicgo/blob/main/proto/idl.go#L23-L40>)
 
 Options is options for parsing thrift IDL.
 
@@ -248,11 +249,25 @@ Options is options for parsing thrift IDL.
 type Options struct {
     // ParseServiceMode indicates how to parse service.
     ParseServiceMode meta.ParseServiceMode
+
+    MapFieldWay meta.MapFieldWay // not implemented.
+
+    ParseFieldRandomRate float64 // not implemented.
+
+    ParseEnumAsInt64 bool // not implemented.
+
+    SetOptionalBitmap bool // not implemented.
+
+    UseDefaultValue bool // not implemented.
+
+    ParseFunctionMode meta.ParseFunctionMode // not implemented.
+
+    EnableProtoBase bool // not implemented.
 }
 ```
 
 <a name="NewDefaultOptions"></a>
-### func [NewDefaultOptions](<https://github.com/khan-yin/dynamicgo/blob/main/proto/idl.go#L29>)
+### func [NewDefaultOptions](<https://github.com/khan-yin/dynamicgo/blob/main/proto/idl.go#L43>)
 
 ```go
 func NewDefaultOptions() Options
@@ -261,7 +276,7 @@ func NewDefaultOptions() Options
 NewDefaultOptions creates a default Options.
 
 <a name="Options.NewDescriptorFromPath"></a>
-### func (Options) [NewDescriptorFromPath](<https://github.com/khan-yin/dynamicgo/blob/main/proto/idl.go#L40>)
+### func (Options) [NewDescriptorFromPath](<https://github.com/khan-yin/dynamicgo/blob/main/proto/idl.go#L54>)
 
 ```go
 func (opts Options) NewDescriptorFromPath(ctx context.Context, path string, importDirs ...string) (*ServiceDescriptor, error)
@@ -332,7 +347,7 @@ type ServiceDescriptor = protoreflect.ServiceDescriptor
 ```
 
 <a name="NewDescritorFromPath"></a>
-### func [NewDescritorFromPath](<https://github.com/khan-yin/dynamicgo/blob/main/proto/idl.go#L34>)
+### func [NewDescritorFromPath](<https://github.com/khan-yin/dynamicgo/blob/main/proto/idl.go#L48>)
 
 ```go
 func NewDescritorFromPath(ctx context.Context, path string, importDirs ...string) (*ServiceDescriptor, error)
@@ -388,7 +403,7 @@ func FromProtoKindToType(kind ProtoKind, isList bool, isMap bool) Type
 FromProtoKindTType converts ProtoKind to Type
 
 <a name="Type.IsComplex"></a>
-### func (Type) [IsComplex](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L156>)
+### func (Type) [IsComplex](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L161>)
 
 ```go
 func (p Type) IsComplex() bool
@@ -397,7 +412,7 @@ func (p Type) IsComplex() bool
 IsComplex tells if the type is one of STRUCT, MAP, SET, LIST
 
 <a name="Type.IsInt"></a>
-### func (Type) [IsInt](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L147>)
+### func (Type) [IsInt](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L152>)
 
 ```go
 func (p Type) IsInt() bool
@@ -406,7 +421,7 @@ func (p Type) IsInt() bool
 IsInt containing isUint
 
 <a name="Type.IsUint"></a>
-### func (Type) [IsUint](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L151>)
+### func (Type) [IsUint](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L156>)
 
 ```go
 func (p Type) IsUint() bool
@@ -414,8 +429,17 @@ func (p Type) IsUint() bool
 
 
 
+<a name="Type.NeedVarint"></a>
+### func (Type) [NeedVarint](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L147>)
+
+```go
+func (p Type) NeedVarint() bool
+```
+
+check if the type need Varint encoding, also used in check list isPacked
+
 <a name="Type.String"></a>
-### func (Type) [String](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L161>)
+### func (Type) [String](<https://github.com/khan-yin/dynamicgo/blob/main/proto/type.go#L166>)
 
 ```go
 func (p Type) String() string
