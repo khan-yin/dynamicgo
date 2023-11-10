@@ -634,6 +634,9 @@ func BenchmarkDynamicpbSetOne(b *testing.B) {
 		}
 		message := dynamicpb.NewMessage(*desc)
 		targetDesc := (*desc).Fields().ByNumber(6)
+		if err := goproto.Unmarshal(data, message); err != nil {
+			b.Fatal("build dynamicpb failed")
+		}
 		fieldValue := protoreflect.ValueOfBytes(obj.BinaryField)
 		message.Set(targetDesc, fieldValue)
 		if !message.Has(targetDesc) {
@@ -645,6 +648,8 @@ func BenchmarkDynamicpbSetOne(b *testing.B) {
 		b.Run("go", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				message = dynamicpb.NewMessage(*desc)
+				_ = goproto.Unmarshal(data, message)
+				fieldValue := protoreflect.ValueOfBytes(obj.BinaryField)
 				message.Set(targetDesc, fieldValue)
 			}
 		})
