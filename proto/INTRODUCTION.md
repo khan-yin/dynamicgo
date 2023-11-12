@@ -189,9 +189,8 @@ MarshalTo主要用于裁剪字段，获取新旧descriptor中共有的字段id�
 ### 反射
 - set/get方法性能比较请查看protobuf字段定量测试结果。
 - MarshalTo方法：相比protobufGo提升随着数据规模的增大趋势越明显，ns/op开销约为源码方法的0.55~0.69。
-<center class = "half">
-<img src = "../image/intro-17.png"  width = "57%" align = left> <img src = "../image/intro-18.png"  width = "43%" align = right>
-</center>
+  
+![](../image/intro-17.png)
 
 ### 字段Get/Set定量测试
 - 定量测试比较方法是protobufGo的dynamicpb模块和DynamicGo的Get/SetByPath，SetMany。
@@ -203,12 +202,15 @@ MarshalTo主要用于裁剪字段，获取新旧descriptor中共有的字段id�
 ### 序列化/反序列化
 - 序列化在medium规模的数据上性能优势更明显，small规模略高于protobufGo，ns/op开销约为源码的0.43~1.65。
 - 反序列化在reuse模式下性能优于ProtobufGo，ns/op开销约为源码的0.64~0.82，随数据规模增大性能优势增加。
+![](../image/intro-19.png)
 ![](../image/intro-20.png)
-![](../image/intro-21.png)
+
 ### 协议转换
 - Json2Protobuf优于ProtobufGo，ns/op性能开销约为源码的0.39~0.58，随着数据量规模增大优势增加。
-- Protobuf2Json优于ProtobufGo和Sonic+Kitex，ns/op开销约为源码的0.22~0.26，ns/op开销约为Sonic+Kitex的0.61~0.79，随着数据量规模增大优势增加。
-![](../image/intro-22.png)
+- Protobuf2Json优于ProtobufGo和Sonic+Kitex，ns/op开销约为源码的0.22~0.26， 开销约为Sonic+Kitex的0.61~0.79，随着数据量规模增大优势增加。
+  
+![](../image/intro-21.png)
+
 详细数据结果文件可在飞书文档中下载。
 
 ## TODO
