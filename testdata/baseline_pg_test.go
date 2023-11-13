@@ -580,7 +580,7 @@ func BenchmarkProtoSetOne(b *testing.B) {
 		p.WriteBytes(obj.BinaryField)
 		fd6 := (*desc).Fields().ByNumber(6)
 		n := generic.NewValue(&fd6, p.Buf)
-		_, err := v.SetByPath(n, generic.NewPathFieldId(6))
+		_, err := v.SetByPath(n.Node, generic.NewPathFieldId(6))
 		require.Nil(b, err)
 		nn := v.GetByPath(generic.NewPathFieldId(6))
 		require.Equal(b, n.Raw(), nn.Raw())
@@ -589,7 +589,7 @@ func BenchmarkProtoSetOne(b *testing.B) {
 		b.ResetTimer()
 		b.Run("go", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_, _ = v.SetByPath(n, generic.NewPathFieldId(6))
+				_, _ = v.SetByPath(n.Node, generic.NewPathFieldId(6))
 			}
 		})
 	})
@@ -608,7 +608,7 @@ func BenchmarkProtoSetOne(b *testing.B) {
 		p.WriteBytes(obj.MapStringSimple["0"].BinaryField)
 		fd15 := (*desc).Fields().ByNumber(15).MapValue().Message().Fields().ByNumber(6)
 		n := generic.NewValue(&fd15, p.Buf)
-		_, err := v.SetByPath(n, generic.NewPathFieldId(15), generic.NewPathStrKey("0"), generic.NewPathFieldId(6))
+		_, err := v.SetByPath(n.Node, generic.NewPathFieldId(15), generic.NewPathStrKey("0"), generic.NewPathFieldId(6))
 		require.Nil(b, err)
 		nn := v.GetByPath(generic.NewPathFieldId(15), generic.NewPathStrKey("0"), generic.NewPathFieldId(6))
 		require.Equal(b, n.Raw(), nn.Raw())
@@ -617,7 +617,7 @@ func BenchmarkProtoSetOne(b *testing.B) {
 		b.ResetTimer()
 		b.Run("go", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_, _ = v.SetByPath(n, generic.NewPathFieldId(15), generic.NewPathStrKey("0"), generic.NewPathFieldId(6))
+				_, _ = v.SetByPath(n.Node, generic.NewPathFieldId(15), generic.NewPathStrKey("0"), generic.NewPathFieldId(6))
 			}
 		})
 	})
@@ -770,6 +770,82 @@ func BenchmarkProtoUnmarshalPartial_ProtoBufGo(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_ = goproto.Unmarshal(data, v)
+		}
+	})
+}
+
+func BenchmarkProtoMarshalTo_ProtoBufGo(b *testing.B) {
+	b.Run("small", func(b *testing.B) {
+		obj := getPbSimpleValue()
+		data, err := goproto.Marshal(obj)
+		if err != nil {
+			b.Fatal(err)
+		}
+		part := &baseline.PartialSimple{}
+		opts := goproto.UnmarshalOptions{DiscardUnknown: true}
+		err = opts.Unmarshal(data, part)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		out, err2 := goproto.Marshal(part)
+		if err2 != nil {
+			b.Fatal(err2)
+		}
+		
+		desc := getPbSimpleDesc()
+		partdesc := getPbPartialSimpleDesc()
+		v := generic.NewRootValue(desc, data)
+		out2, err3 := v.MarshalTo(partdesc, &generic.Options{})
+		if err3 != nil {
+			b.Fatal(err3)
+		}
+
+		require.Equal(b, len(out), len(out2))
+
+		b.SetBytes(int64(len(data)))
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			part := &baseline.PartialSimple{}
+			_ = opts.Unmarshal(data, part)
+			_, _ = goproto.Marshal(part)
+		}
+	})
+
+	b.Run("medium", func(b *testing.B) {
+		obj := getPbNestingValue()
+		data, err := goproto.Marshal(obj)
+		if err != nil {
+			b.Fatal(err)
+		}
+		part := &baseline.PartialNesting{}
+		opts := goproto.UnmarshalOptions{DiscardUnknown: true}
+		err = opts.Unmarshal(data, part)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		out, err2 := goproto.Marshal(part)
+		if err2 != nil {
+			b.Fatal(err2)
+		}
+
+		desc := getPbNestingDesc()
+		partdesc := getPbPartialNestingDesc()
+		v := generic.NewRootValue(desc, data)
+		out2, err3 := v.MarshalTo(partdesc, &generic.Options{})
+		if err3 != nil {
+			b.Fatal(err3)
+		}
+
+		require.Equal(b, len(out), len(out2))
+
+		b.SetBytes(int64(len(data)))
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			part := &baseline.PartialNesting{}
+			_ = opts.Unmarshal(data, part)
+			_, _ = goproto.Marshal(part)
 		}
 	})
 }
@@ -948,19 +1024,50 @@ func BenchmarkProtoMarshalTo_KitexFast(b *testing.B) {
 		if ret != len(data) {
 			b.Fatal(ret)
 		}
-		pobj := getPbPartialSimpleValue()
-		plen := pobj.FastWrite(data)
-		pdata := make([]byte, pobj.Size())
-		ret = pobj.FastWrite(pdata)
-		if ret != len(pdata) {
-			b.Fatal(ret)
+
+		// fast read check
+		exp := baseline.PartialSimple{}
+		dataLen := len(data)
+		l := 0
+		for l < dataLen {
+			id, wtyp, tagLen := goprotowire.ConsumeTag(data)
+			if tagLen < 0 {
+				b.Fatal("test failed")
+			}
+			l += tagLen
+			data = data[tagLen:]
+			offset, err := exp.FastRead(data, int8(wtyp), int32(id))
+			require.Nil(b, err)
+			data = data[offset:]
+			l += offset
 		}
-		require.Equal(b, plen, pobj.Size())
+
+		data2 := make([]byte, exp.Size())
+		ret2 := exp.FastWrite(data2)
+		if ret2 != len(data2) {
+			b.Fatal(ret2)
+		}
+			
 		b.SetBytes(int64(len(data)))
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = obj.FastWrite(data)
-			_ = pobj.FastWrite(pdata)
+			exp := baseline.PartialSimple{}
+			dataLen := len(data)
+			l := 0
+			for l < dataLen {
+				id, wtyp, tagLen := goprotowire.ConsumeTag(data)
+				if tagLen < 0 {
+					b.Fatal("test failed")
+				}
+				l += tagLen
+				data = data[tagLen:]
+				offset, _ := exp.FastRead(data, int8(wtyp), int32(id))
+				data = data[offset:]
+				l += offset
+			}
+			data2 := make([]byte, exp.Size())
+			_ = exp.FastWrite(data2)
+			
 		}
 	})
 
@@ -969,21 +1076,51 @@ func BenchmarkProtoMarshalTo_KitexFast(b *testing.B) {
 		data := make([]byte, obj.Size())
 		ret := obj.FastWrite(data)
 		if ret != len(data) {
-			b.Fatal(ret)
+			panic(ret)
 		}
-		pobj := getPbPartialNestingValue()
-		plen := pobj.FastWrite(data)
-		pdata := make([]byte, pobj.Size())
-		ret = pobj.FastWrite(pdata)
-		if ret != len(pdata) {
-			b.Fatal(ret)
+
+		// fast read check
+		exp := baseline.PartialNesting{}
+		dataLen := len(data)
+		l := 0
+		for l < dataLen {
+			id, wtyp, tagLen := goprotowire.ConsumeTag(data)
+			if tagLen < 0 {
+				b.Fatal("test failed")
+			}
+			l += tagLen
+			data = data[tagLen:]
+			offset, err := exp.FastRead(data, int8(wtyp), int32(id))
+			require.Nil(b, err)
+			data = data[offset:]
+			l += offset
 		}
-		require.Equal(b, plen, pobj.Size())
+
+		data2 := make([]byte, exp.Size())
+		ret2 := exp.FastWrite(data2)
+		if ret2 != len(data2) {
+			b.Fatal(ret2)
+		}
+			
 		b.SetBytes(int64(len(data)))
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = obj.FastWrite(data)
-			_ = pobj.FastWrite(pdata)
+			exp := baseline.PartialNesting{}
+			dataLen := len(data)
+			l := 0
+			for l < dataLen {
+				id, wtyp, tagLen := goprotowire.ConsumeTag(data)
+				if tagLen < 0 {
+					b.Fatal("test failed")
+				}
+				l += tagLen
+				data = data[tagLen:]
+				offset, _ := exp.FastRead(data, int8(wtyp), int32(id))
+				data = data[offset:]
+				l += offset
+			}
+			data2 := make([]byte, exp.Size())
+			_ = exp.FastWrite(data2)
 		}
 	})
 }
@@ -1516,7 +1653,7 @@ func BenchmarkProtoRationSetBefore(b *testing.B) {
 			}
 			field := (*desc).Fields().ByNumber(proto.Number(id))
 			n := generic.NewValue(&field, p.Buf)
-			_, err := v.SetByPath(n, generic.NewPathFieldId(proto.Number(id)))
+			_, err := v.SetByPath(n.Node, generic.NewPathFieldId(proto.Number(id)))
 			require.Nil(b, err)
 			nn := v.GetByPath(generic.NewPathFieldId(proto.Number(id)))
 			nndata := nn.Raw()
@@ -1556,7 +1693,7 @@ func BenchmarkProtoRationSetBefore(b *testing.B) {
 					_ = buildBinaryProtocolByFieldId(id, p, value, &fieldDesc)
 					field := (*desc).Fields().ByNumber(proto.Number(id))
 					n := generic.NewValue(&field, p.Buf)
-					_, _ = v.SetByPath(n, generic.NewPathFieldId(proto.Number(id)))
+					_, _ = v.SetByPath(n.Node, generic.NewPathFieldId(proto.Number(id)))
 					pnode := generic.PathNode{
 						Path: generic.NewPathFieldId(proto.FieldNumber(id)),
 						Node: n.Node,
@@ -1619,7 +1756,7 @@ func BenchmarkProtoRationSet(b *testing.B) {
 			}
 			// fmt.Println(id)
 			require.Equal(b, len(newValue.Raw()), len(x.Raw()))
-			_, err = newRoot.SetByPath(newValue, generic.NewPathFieldId(proto.Number(id)))
+			_, err = newRoot.SetByPath(newValue.Node, generic.NewPathFieldId(proto.Number(id)))
 			require.Nil(b, err)
 			vv := newRoot.GetByPath(generic.NewPathFieldId(proto.Number(id)))
 			require.Equal(b, len(newValue.Raw()), len(vv.Raw()))
@@ -1650,7 +1787,7 @@ func BenchmarkProtoRationSet(b *testing.B) {
 				for id := 1; id <= testNums; id++ {
 					x := objRoot.GetByPath(generic.NewPathFieldId(proto.Number(id)))
 					newValue := x.Fork()
-					_, err = newRoot.SetByPath(newValue, generic.NewPathFieldId(proto.Number(id)))
+					_, err = newRoot.SetByPath(newValue.Node, generic.NewPathFieldId(proto.Number(id)))
 					p.Recycle()
 					ps = append(ps, generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))})
 				}
@@ -1711,7 +1848,7 @@ func BenchmarkProtoRationSetByInterface(b *testing.B) {
 			}
 			// fmt.Println(id)
 			require.Equal(b, len(newValue.Raw()), len(x.Raw()))
-			_, err = newRoot.SetByPath(newValue, generic.NewPathFieldId(proto.Number(id)))
+			_, err = newRoot.SetByPath(newValue.Node, generic.NewPathFieldId(proto.Number(id)))
 			require.Nil(b, err)
 			vv := newRoot.GetByPath(generic.NewPathFieldId(proto.Number(id)))
 			require.Equal(b, len(newValue.Raw()), len(vv.Raw()))
@@ -1763,7 +1900,7 @@ func BenchmarkProtoRationSetByInterface(b *testing.B) {
 					// 	et := proto.FromProtoKindToType(field.MapValue().Kind(), false, false)
 					// 	newValue.SetElemType(et)
 					// }
-					_, err = newRoot.SetByPath(newValue, generic.NewPathFieldId(proto.Number(id)))
+					_, err = newRoot.SetByPath(newValue.Node, generic.NewPathFieldId(proto.Number(id)))
 					p.Recycle()
 					ps = append(ps, generic.PathNode{Path: generic.NewPathFieldId(proto.FieldNumber(id))})
 				}
