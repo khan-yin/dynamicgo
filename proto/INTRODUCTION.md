@@ -177,6 +177,79 @@ DOM建好PathNode后，可直接调用PathNode的Marshal方法即可，本质是
 MarshalTo主要用于裁剪字段，获取新旧descriptor中共有的字段id，然后进行翻译，可支持多层嵌套内部的字段缺失，LIST/MAP内部元素字段缺失，核心关键在于`message`，`List<Message>`，`map<int/string，Message>`的descriptor均为messageKind。
 
 ## JSON协议转换
+### ProtoBuf——>JSON
+#### 协议转换过程
+协议转换的过程可以理解为逐字节解析 ProtoBuf，并结合 Descriptor 类型编码为 JSON 到输出字节流，整个过程是 in-place 进行的，并且结合内存池技术，仅需为输出字节流分配一次内存即可。
+ProtoBuf——>JSON 的转换过程如下：
+1. 根据输入的 Descriptor 指针类型区分，若为 Singular(string/number/bool/Enum) 类型，跳转到
+2. 按照 Message（[Tag] [Length] [TLV][TLV][TLV]....）编码格式对输入字节流执行 varint解码，将Tag解析为 fieldId（字段ID）、wireType（字段wiretype类型）；
+3. 根据第2步解析的 fieldId 确定字段 FieldDescriptor，并编码字段名 key 作为 jsonKey 到输出字节流；
+4. 根据 FieldDescriptor 确定字段类型（Singular/Message/List/Map），选择不同编码方法编码 jsonValue 到输出字节流；
+5. 如果是 Singular 类型，直接编码到输出字节流；
+6. 其它类型递归处理内部元素，确定子元素 Singular 类型进行编码，写入输出字节流中；
+7. 及时输入字节流读取位置和输出字节流写入位置，跳回2循环处理，直到读完输入字节流。
+
+#### List类型处理
+> List类型包括 PackedList、UnpackedList，区别为元数据类型是否为 Number。在转换时根据 FieldDescriptor 区分这两种类型；
+- PackedList：[Tag][Length][Value Value Value Value ....]
+     解析完 Tag、Length后循环处理 Value数组，每解析一个 Value元素，编码到输出字节流；
+- UnpackedList：[Tag][Length][Value] [Tag][Length][Value] ... 
+  所有子节点共享 fieldId（字段ID），因此每次预解析 Tag 得到 elementNumber，并以 (elementNumber==fieldId)=true 作为循环条件直到结束。
+
+#### Map类型处理
+Map：[PairTag][PairLength][KeyTag][KeyLength][KeyValue][ValueTag][ValueLength][ValueValue]....
+
+Map 类型所有 PairTag 共享相同 fieldId（字段ID）。因此预解析 PairTag 得到 pairNumber，并以 (pairNumber==fieldId)=true 作为循环条件直到结束。
+
+### JSON——>ProtoBuf
+协议转换过程中通过 sonic 框架实现 in-place 遍历 JSON，并实现了接口 Onxxx（OnBool、OnString、OnInt64....）方法达到编码 ProtoBuf 的目标，编码过程也做到了 in-place。
+
+#### VisitorUserNode 结构
+因为在编码 Protobuf 格式的 Mesage/UnpackedList/Map 类型时需要对字段总长度回写，并且在解析复杂类型（Message/Map/List）的子元素时需要依赖复杂类型 Descriptor 来获取子元素 Descriptor，所以需要 VisitorUserNode 结构来保存解析 json 时的中间数据。
+
+```go
+type VisitorUserNode struct {
+    stk             []VisitorUserNodeStack
+    sp              uint8
+    p               *binary.BinaryProtocol
+    globalFieldDesc *proto.FieldDescriptor
+}
+```
+1. stk：记录解析时中间变量的栈结构，在解析 Message 类型时记录 MessageDescriptor、PrefixLen；在解析 Map 类型时记录 FieldDescriptor、PairPrefixLen；在解析 List 类型时记录 FieldDescriptor、PrefixListLen；
+2. sp：当前所处栈的层级；
+3. p：输出字节流；
+4. globalFieldDesc：每当解析完 MessageField 的 jsonKey 值，保存该字段 Descriptor 值；
+
+#### VisitorUserNodeStack 结构
+记录解析时字段 Descriptor、回写长度的起始地址 PrefixLenPos 的栈结构
+```go
+type VisitorUserNodeStack struct {
+    typ   uint8
+    state visitorUserNodeState
+}
+```
+1. typ：当前字段的类型，取值有对象类型（objStkType）、数组类型（arrStkType）、哈希类型（mapStkType）；
+2. state：存储详细的数据值；
+
+#### visitorUserNodeState 结构
+```go
+type visitorUserNodeState struct {
+    msgDesc   *proto.MessageDescriptor
+    fieldDesc *proto.FieldDescriptor
+    lenPos    int
+}
+```
+1. msgDesc：记录 root 层的动态类型描述 MessageDescriptor；
+2. fieldDesc：记录父级元素（Message/Map/List）的动态类型描述 FieldDescriptor；
+3. lenPos：记录需要回写 PrefixLen 的位置；
+
+#### 协议转换过程
+JSON——>ProtoBuf 的转换过程如下：
+1. 从输入字节流中读取一个 json 值，并判断其具体类型（object/array/string/float/int/bool/null）；
+2. 如果是 object 类型，可能对应 ProtoBuf MapType/MessageType，sonic 会按照 OnObjectBegin()——>OnObjectKey()——>decodeValue()... 顺序处理输入字节流。OnObjectBegin()阶段解析具体的动态类型描述 FieldDescriptor 并压栈；OnObjectKey() 阶段解析 jsonKey 并以 ProtoBuf 格式编码 Tag、Length 到输出字节流；decodeValue()阶段递归解析子元素并以 ProtoBuf 格式编码 Value 部分到输出字节流，若子类型为复杂类型（Message/Map），会递归执行第 2 步；若子类型为复杂类型（List），会递归执行第 3 步。
+3. 如果是 array 类型，对应 ProtoBuf PackedList/UnpackedList，sonic 会按照 OnObjectBegin()——>OnObjectKey()——>OnArrayBegin()——>decodeValue()——>OnArrayEnd()... 顺序处理输入字节流。OnObjectBegin()阶段处理解析 List 字段对应动态类型描述 FieldDescriptor 并压栈；OnObjectKey()阶段解析 List 下子元素的动态类型描述 FieldDescriptor 并压栈；OnArrayBegin()阶段将 PackedList 类型的 Tag、Length 编码到输出字节流；decodeValue()阶段循环处理子元素，按照子元素类型编码到输出流，若子元素为复杂类型（Message），会跳转到第 2 步递归执行。
+4. 在结束处理某字段数据后，获取栈顶 lenPos 数据，对字段长度部分回写并退栈。
+5. 更新输入和输出字节流位置，跳回第 1 步循环处理，直到处理完输入流数据。
 
 ## 性能测试
 构造与thrift性能测试基本相同的baseline.proto文件，定义了对应的简单（Small)、复杂（Medium)、简单缺失（SmallPartial）、复杂缺失（MediumPartial） 两个对应子集。
