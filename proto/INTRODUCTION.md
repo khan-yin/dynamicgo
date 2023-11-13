@@ -280,7 +280,7 @@ JSON——>ProtoBuf 的转换过程如下：
 - Set/Get字段定量测试结果均优于ProtobufGo，且在获取字段越稀疏的情况下性能加速越明显，因为protobuf源码不论获取多少比率的字段，都需要完整序列化全体对象，而dynamicgo则是直接解析buf完成copy。
 - setmany性能加速更明显，在100%字段下ns/op开销约为0.22。
 
-![](../image/intro-19.png)
+![](../image/intro-18.png)
 
 ### 序列化/反序列化
 - 代码：[dynamicgo/testdata/baseline_pg_test.go#BenchmarkProtoMarshalAll_DynamicGo](../testdata/baseline_pg_test.go#L1128)
