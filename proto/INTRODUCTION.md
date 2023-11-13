@@ -246,9 +246,16 @@ type visitorUserNodeState struct {
 #### 协议转换过程
 JSON——>ProtoBuf 的转换过程如下：
 1. 从输入字节流中读取一个 json 值，并判断其具体类型（object/array/string/float/int/bool/null）；
-2. 如果是 object 类型，可能对应 ProtoBuf MapType/MessageType，sonic 会按照 OnObjectBegin()——>OnObjectKey()——>decodeValue()... 顺序处理输入字节流。OnObjectBegin()阶段解析具体的动态类型描述 FieldDescriptor 并压栈；OnObjectKey() 阶段解析 jsonKey 并以 ProtoBuf 格式编码 Tag、Length 到输出字节流；decodeValue()阶段递归解析子元素并以 ProtoBuf 格式编码 Value 部分到输出字节流，若子类型为复杂类型（Message/Map），会递归执行第 2 步；若子类型为复杂类型（List），会递归执行第 3 步。
-3. 如果是 array 类型，对应 ProtoBuf PackedList/UnpackedList，sonic 会按照 OnObjectBegin()——>OnObjectKey()——>OnArrayBegin()——>decodeValue()——>OnArrayEnd()... 顺序处理输入字节流。OnObjectBegin()阶段处理解析 List 字段对应动态类型描述 FieldDescriptor 并压栈；OnObjectKey()阶段解析 List 下子元素的动态类型描述 FieldDescriptor 并压栈；OnArrayBegin()阶段将 PackedList 类型的 Tag、Length 编码到输出字节流；decodeValue()阶段循环处理子元素，按照子元素类型编码到输出流，若子元素为复杂类型（Message），会跳转到第 2 步递归执行。
-4. 在结束处理某字段数据后，获取栈顶 lenPos 数据，对字段长度部分回写并退栈。
+2. 如果是 object 类型，可能对应 ProtoBuf MapType/MessageType，sonic 会按照 OnObjectBegin()——>OnObjectKey()——>decodeValue()... 顺序处理输入字节流。
+      - OnObjectBegin()阶段解析具体的动态类型描述 FieldDescriptor 并压栈；
+      - OnObjectKey() 阶段解析 jsonKey 并以 ProtoBuf 格式编码 Tag、Length 到输出字节流；
+      - decodeValue()阶段递归解析子元素并以 ProtoBuf 格式编码 Value 部分到输出字节流，若子类型为复杂类型（Message/Map），会递归执行第 2 步；若子类型为复杂类型（List），会递归执行第 3 步。
+3. 如果是 array 类型，对应 ProtoBuf PackedList/UnpackedList，sonic 会按照 OnObjectBegin()——>OnObjectKey()——>OnArrayBegin()——>decodeValue()——>OnArrayEnd()... 顺序处理输入字节流。
+     - OnObjectBegin()阶段处理解析 List 字段对应动态类型描述 FieldDescriptor 并压栈；
+     - OnObjectKey()阶段解析 List 下子元素的动态类型描述 FieldDescriptor 并压栈；
+     - OnArrayBegin()阶段将 PackedList 类型的 Tag、Length 编码到输出字节流；
+     - decodeValue()阶段循环处理子元素，按照子元素类型编码到输出流，若子元素为复杂类型（Message），会跳转到第 2 步递归执行。
+4. 在结束处理某字段数据后执行 onValueEnd()、OnArrayEnd()、OnObjectEnd()，获取栈顶 lenPos 数据，对字段长度部分回写并退栈。
 5. 更新输入和输出字节流位置，跳回第 1 步循环处理，直到处理完输入流数据。
 
 ## 性能测试
@@ -280,7 +287,7 @@ JSON——>ProtoBuf 的转换过程如下：
 
 ### 协议转换
 - Json2Protobuf优于ProtobufGo，ns/op性能开销约为源码的0.39~0.58，随着数据量规模增大优势增加。
-- Protobuf2Json优于ProtobufGo和Sonic+Kitex，ns/op开销约为源码的0.22~0.26， 开销约为Sonic+Kitex的0.61~0.79，随着数据量规模增大优势增加。
+- Protobuf2Json优于ProtobufGo和Sonic+Kitex，ns/op开销约为源码的0.22 ~ 0.26， 开销约为Sonic+Kitex的0.61~0.79，随着数据量规模增大优势增加。
   
 ![](../image/intro-21.png)
 
@@ -291,5 +298,5 @@ JSON——>ProtoBuf 的转换过程如下：
 - [ ] 部分JSON option暂未实现。
 - [ ] DOM tree的Assign函数还需要实现，尝试实现但存在一些问题由于时间关系不太好解决。
 - [ ] 是否可以优化到不区分DOM的Node不区分root层和其他层的Message？目前的root层MESSAGE的Node不带L，而其他的都带有L，感觉可以优化之前设计没做好可能，如果统一可能有别的地方会带来些小问题，比如在非递归的DOM下marshal则需要自己补充L，因为Path只补齐了Tag。
-- [ ] DOM对于Enum，Oneof，Extension的支持（但已经在protobuf3官方弃用）
+- [ ] DOM对于Enum，Oneof，Extension（Extension已经在protobuf3官方弃用）的支持。
 - [ ] DOM相关的部分option有待实现。
