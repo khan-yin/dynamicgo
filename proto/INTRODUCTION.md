@@ -293,7 +293,7 @@ JSON——>ProtoBuf 的转换过程如下：
 - Json2Protobuf优于ProtobufGo，ns/op性能开销约为源码的0.39~0.58，随着数据量规模增大优势增加。
 - 代码：[dynamicgo/testdata/baseline_j2p_test.go](../testdata/baseline_j2p_test.go)
 - Protobuf2Json优于ProtobufGo和Sonic+Kitex，ns/op开销约为源码的0.22 ~ 0.26， 开销约为Sonic+Kitex的0.61~0.79，随着数据量规模增大优势增加。
-- 代码：[baseline_p2j_test.go](../testdata/baseline_p2j_test.go)
+- 代码：[dynamicgo/testdata/baseline_p2j_test.go](../testdata/baseline_p2j_test.go)
   
 ![](../image/intro-21.png)
 
