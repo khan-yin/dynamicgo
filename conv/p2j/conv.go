@@ -72,3 +72,60 @@ func (self *BinaryConv) DoInto(ctx context.Context, desc *proto.TypeDescriptor, 
 
 	return self.do(ctx, pbytes, desc, buf, resp)
 }
+
+func TestNestedField(t *testing.T) {
+	protoContent := `
+	syntax = "proto3";
+	message Item {
+		repeated string ids = 1;
+	}
+
+	message ExampleReq {
+		repeated Item items = 1;
+	}
+
+	message ExampleResp {
+		repeated Item items = 1;
+	}
+
+	service Service {
+		rpc Example(ExampleReq) returns (ExampleResp);
+	}
+	`
+	dataContent := `{"items":[{"ids":["123"]},{"ids":["456"]}]}`
+	// itemtag L [ idstag1 L V idstag1 L V ] itemtag L [ idstag1 L V ]
+
+	req := &examplepb.NestedExampleReq{
+		Items: []*examplepb.Item{
+			{Ids: []string{"123"}},
+			{Ids: []string{"456"}},
+		},
+	}
+
+	t.Run("nested string", func(t *testing.T) {
+		ctx := context.Background()
+		serviceDesc, err := proto.NewDescritorFromContent(ctx, "example.proto", protoContent, map[string]string{})
+		if err != nil {
+			log.Fatal(err)
+		}
+		reqDesc := serviceDesc.LookupMethodByName("Example").Input()
+		conv1 := j2p.NewBinaryConv(conv.Options{})
+		origindata, err := goproto.Marshal(req)
+		if err != nil {
+			t.Fatal("marshal error:", err)
+		}
+		reqProto, err := conv1.Do(ctx, reqDesc, []byte(dataContent))
+		fmt.Println(len(origindata), len(reqProto))
+		if err != nil {
+			t.Fatal("json marshal to protobuf error")
+		}
+		conv2 := NewBinaryConv(conv.Options{})
+		reqJson, err := conv2.Do(ctx, reqDesc, reqProto)
+		if err != nil {
+			t.Fatal("protobuf marshal to json error")
+		}
+
+		require.Equal(t, dataContent, string(reqJson))
+
+	})
+}
